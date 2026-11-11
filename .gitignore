@@ -1,0 +1,41 @@
+# Secrets (keep out of Git)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# Node / Electron
+node_modules/
+dist/
+out/
+build/
+release/
+coverage/
+.playwright/
+playwright-report/
+test-results/
+*.log
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+
+# User-private data and raw media
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+runtime-data/
+captures/
+recordings/
+local-models/
+
+# Python cache for optional validation helper only
+__pycache__/
+*.pyc
