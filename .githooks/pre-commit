@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Strict one changed/staged path per commit (Git Bash on Windows / bash on Unix).
+set -euo pipefail
+
+# -z ensures whitespace/newline in a filename does not create extra entries.
+# --name-only emits destination path for a rename; Git considers it one path.
+mapfile -d '' -t staged_paths < <(git diff --cached --name-only -z --diff-filter=ACDMRTUXB)
+count=${#staged_paths[@]}
+
+if (( count != 1 )); then
+  echo >&2 "ERROR: AURA DESK requires EXACTLY ONE changed file path per commit; found $count."
+  echo >&2 "Staged paths:"
+  git diff --cached --name-status >&2 || true
+  echo >&2 "Stage exactly one path: git add -- path/to/file"
+  echo >&2 "Do not bypass with --no-verify."
+  exit 1
+fi
+
+if ! git diff --cached --check; then
+  echo >&2 "ERROR: staged patch contains whitespace/conflict marker issues."
+  exit 1
+fi
+
+echo "OK: staged exactly one path: ${staged_paths[0]}"
