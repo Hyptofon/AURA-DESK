@@ -1,0 +1,64 @@
+/**
+ * Zero-dependency IPC channel constants and pure TypeScript contracts.
+ * Safe to import in sandboxed preload scripts without pulling in external npm modules (e.g. Zod).
+ */
+
+export const IPC_CHANNELS = {
+  APP_GET_INFO: 'aura:app-get-info',
+  SESSION_GET_STATE: 'aura:session-get-state',
+  SESSION_SET_SELECTION: 'aura:session-set-selection'
+} as const
+
+export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
+
+export const ALLOWED_IPC_CHANNELS: readonly string[] = Object.values(IPC_CHANNELS)
+
+export function isAllowedIpcChannel(channel: string): channel is IpcChannel {
+  return ALLOWED_IPC_CHANNELS.includes(channel)
+}
+
+/**
+ * Capture Selection contract: EXACTLY two modes per product specification.
+ */
+export type CaptureSelection =
+  | { mode: 'both' }
+  | { mode: 'single'; displayId: string }
+
+/**
+ * Session status state machine values.
+ */
+export type SessionStatus =
+  | 'idle'
+  | 'starting'
+  | 'active'
+  | 'paused'
+  | 'stopping'
+  | 'error'
+
+/**
+ * Application metadata contract.
+ */
+export interface AppInfo {
+  name: string
+  version: string
+  platform: string
+  isPackaged: boolean
+}
+
+/**
+ * Structured IPC response pattern.
+ */
+export interface IpcSuccess<T> {
+  ok: true
+  data: T
+}
+
+export interface IpcError {
+  ok: false
+  error: {
+    code: string
+    message: string
+  }
+}
+
+export type IpcResponse<T> = IpcSuccess<T> | IpcError
