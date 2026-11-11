@@ -73,7 +73,7 @@
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (164 tests total across 10 suites: frame-buffer [12], source-resolver [9], single-display-capturer [10], display-manager [20], navigation-guard [17], preload-api [15], ipc-contracts [35], ipc-handlers [37], production-invariants [6], App.test.tsx [4]).
+- `npm run test`: PASS (165 tests total across 10 suites: frame-buffer [12], source-resolver [9], single-display-capturer [10], display-manager [20], navigation-guard [17], preload-api [15], ipc-contracts [35], ipc-handlers [37], production-invariants [6], App.test.tsx [4]).
 - `npm run build`: PASS (electron-vite built main, preload 2.18 kB with 0 zod dependencies, and renderer).
 - Physical dual-monitor configuration: PASS (host verified with two physical 1080p monitors via .NET enumeration).
 - Real Electron physical cable disconnect/reconnect hotplug: NEEDS MANUAL TEST (mock tests verify protocol correctness; manual Windows test procedure documented below).
