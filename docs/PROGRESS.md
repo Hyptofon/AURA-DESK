@@ -1,6 +1,6 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-11. **Current status:** `M0 COMPLETED, M1 IN PROGRESS`.
+**Last verified:** 2026-11-12. **Current status:** `M0 COMPLETED, M1 IN PROGRESS (P1.1 COMPLETED, P1.2 IN REVIEW)`.
 
 ## Summary
 
@@ -13,7 +13,7 @@
 
 ## Current milestone
 
-**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4).
+**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4; Task P1.1 completed and merged; Task P1.2 implemented and in review).
 
 ## Verified deliverables
 
@@ -34,33 +34,44 @@
   * Host Hardware Verification: host machine verified with two physical 1080p monitors (`DISPLAY1` primary at 0,0, `DISPLAY2` secondary at -1920,1) via .NET Windows.Forms enumeration.
   * Unit & Contract Tests: 108 tests total across 6 test suites passing green (`display-manager.test.ts` [20], `ipc-contracts.test.ts` [26], `ipc-handlers.test.ts` [28], `navigation-guard.test.ts` [17], `preload-api.test.ts` [13], `App.test.tsx` [4]).
 - External AI & Codex Review Policy Governance: permanently banned autonomous Codex review triggers (`@codex review`), Codex Cloud tasks, and paid external AI reviews across `AGENTS.md`, `docs/DEVELOPMENT_WORKFLOW.md`, and `.agents/skills/code-review/SKILL.md`. Formalized that independent code review is conducted exclusively by ChatGPT in standard conversational chat initiated by the user.
+- P1.2 Single Display Capture Isolation & Hotplug Abort (IN REVIEW, PR #4):
+  * Capture Contracts (`src/shared/contracts/capture.ts`, `src/shared/contracts/channels.ts`, `src/shared/contracts/ipc.ts`): defined pure `CapturedFrame`, `FrameBufferOptions`, `FrameBufferStats`, and `ScreenCapturePort` contracts. Added `SESSION_START`, `SESSION_STOP`, and `SESSION_STATUS_CHANGED` channels. Implemented strict runtime Zod schemas (`SessionStartRequestSchema`, `SessionStartResponseSchema`, `SessionStopResponseSchema`, `CaptureStatusSchema`). Added 9 new contract unit tests (35 tests total in `ipc-contracts.test.ts`).
+  * In-Memory Bounded Ring Buffer (`src/main/capture/frame-buffer.ts`): implemented `FrameRingBuffer` enforcing strict bounds (`maxFrames`, `maxBytes`, duration TTL). Non-negotiable invariant: enforces cross-display isolation by rejecting any frame with mismatched `displayId`. Buffers flushed completely on stop. Added 8 unit tests (`frame-buffer.test.ts`).
+  * Fail-Closed Source Resolver (`src/main/capture/source-resolver.ts`): prioritized 4-tier resolution mapping logical display ID to Electron `desktopCapturer` source ID. Fails closed with structured errors (`DISPLAY_NOT_FOUND`, `NO_MATCHING_SOURCE`, `AMBIGUOUS_SOURCE_MATCH`) if display is absent, ambiguous, or unmapped. Added 8 unit tests (`source-resolver.test.ts`).
+  * Isolated Capturer (`src/main/capture/single-display-capturer.ts`): implemented `SingleDisplayCapturer` adhering strictly to single-display invariant. Samples ONLY the chosen display; the other display is never initialized, captured, or buffered. Subscribes to `DisplayManager` hotplug stream; if `selectedDisplayLost: true`, immediately aborts capture and flushes buffers with NO automatic fallback to primary. Fully idempotent `stop()` clears timers, subscriptions, and buffers. Added 7 unit tests (`single-display-capturer.test.ts`).
+  * IPC Handlers & Lifecycle Wiring (`src/main/ipc/register-handlers.ts`, `src/main/index.ts`): registered `SESSION_START` and `SESSION_STOP` handlers guarded by fail-closed sender context validation. Wired `SingleDisplayCapturer` instance to `mainWindow` lifecycle with automatic teardown on window `closed`. Added 6 new IPC handler unit tests (34 tests total in `ipc-handlers.test.ts`).
+  * Preload Bridge (`src/preload/index.ts`): exposed typed `startSession` and `stopSession` methods in `window.api` with 0 external dependencies (0 zod imports in preload bundle). Added 2 new unit tests (15 tests total in `preload-api.test.ts`).
+  * Unit & Contract Tests: 148 tests total across 9 test suites passing green (`frame-buffer.test.ts` [8], `source-resolver.test.ts` [8], `single-display-capturer.test.ts` [7], `ipc-contracts.test.ts` [35], `ipc-handlers.test.ts` [34], `preload-api.test.ts` [15], `display-manager.test.ts` [20], `navigation-guard.test.ts` [17], `App.test.tsx` [4]).
 
 ## Latest evidence
 
 - `py -3 scripts/test-verify-one-file-history.py`: PASS (9 regression tests covering single-file commits, multi-file rejection, 2-parent merges, octopus merges, arbitrary merge subjects, non-conforming formats, local branch merges, non-existent revision handling, and CLI exit code).
 - `py -3 scripts/validate-blueprint.py`: PASS (18 skills, 5 rules, 12 expected files).
-- `py -3 scripts/verify-one-file-history.py 100`: PASS (all 100 audited commits touch exactly 1 file: 98 single-file commits + 2 valid 2-parent PR merges).
+- `py -3 scripts/verify-one-file-history.py 100`: PASS (all 100 audited commits touch exactly 1 file: 97 single-file commits + 3 valid 2-parent PR merges).
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (108 tests total across 6 suites: display-manager [20], navigation-guard [17], preload-api [13], ipc-contracts [26], ipc-handlers [28], App.test.tsx [4]).
-- `npm run build`: PASS (electron-vite built main, preload 1.63 kB with 0 zod dependencies, and renderer).
+- `npm run test`: PASS (148 tests total across 9 suites: frame-buffer [8], source-resolver [8], single-display-capturer [7], display-manager [20], navigation-guard [17], preload-api [15], ipc-contracts [35], ipc-handlers [34], App.test.tsx [4]).
+- `npm run build`: PASS (electron-vite built main, preload 1.76 kB with 0 zod dependencies, and renderer).
 - Physical dual-monitor configuration: PASS (host verified with two physical 1080p monitors via .NET enumeration).
 - Real Electron physical cable disconnect/reconnect hotplug: NEEDS MANUAL TEST (mock tests verify protocol correctness; manual Windows test procedure documented below).
+- Real physical display frame capture: NEEDS MANUAL TEST (mock tests verify single-source isolation, memory bounds, and hotplug abort; manual Windows test procedure documented below).
 
 ### Reproducible Windows Manual Test Instructions:
 1. Run `npm run dev` in PowerShell to launch the desktop application.
 2. Open DevTools (`Ctrl+Shift+I`) and inspect `window.api`:
-   - Execute: `await window.api.getDisplays()` → verifies physical displays enumerated with bounds and workArea.
-   - Execute: `const unsub = window.api.onDisplaysChanged(c => console.log('HOTPLUG EVENT:', c))` → subscribes to hotplug stream.
-3. Test metrics/workArea change: resize or move Windows taskbar or change screen scaling in Windows Display Settings. Observe `HOTPLUG EVENT` logged with updated `workArea`.
-4. Test physical hotplug: turn off or disconnect secondary monitor. Observe `HOTPLUG EVENT` logged with `count: 1`, `isMultiDisplay: false`, and `selectedDisplayLost: true` if secondary display was selected.
-5. Reconnect secondary monitor: observe `HOTPLUG EVENT` logged with `count: 2`, `selectedDisplayLost: false`.
-6. Execute `unsub()` to verify cleanup.
+   - Execute: `const config = await window.api.getDisplays()` → verifies physical displays enumerated with bounds and workArea.
+   - Execute: `const displayId = config.displays[0].id`
+   - Execute: `const startRes = await window.api.startSession({ mode: 'single', displayId })` → verifies session start response `ok: true`.
+   - Execute: `const stopRes = await window.api.stopSession()` → verifies session stop response `ok: true`.
+3. Test hotplug abort during capture:
+   - Start session on secondary monitor: `await window.api.startSession({ mode: 'single', displayId: config.displays[1].id })`
+   - Turn off or disconnect secondary monitor.
+   - Observe capture aborts immediately, buffers are flushed, and no fallback occurs to primary monitor.
 
 ## Next recommended task
 
-P1.2: Capture Single display only; validate no leakage from other physical display (Milestone M1).
+Independent Code Review of PR #4 (Task P1.2); then Task P1.3 (Dual Display Simultaneous Capture).
 
 ## Completed work template (fill after genuine verification)
 
