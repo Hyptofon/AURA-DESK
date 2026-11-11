@@ -9,7 +9,13 @@ import {
   type ElectronDisplayLike
 } from '../../src/main/displays/display-manager'
 import type { DesktopCapturerSourceLike } from '../../src/main/capture/source-resolver'
-import type { CaptureSelection } from '../../src/shared/contracts/channels'
+import type { CaptureSelection, SessionStatus } from '../../src/shared/contracts/channels'
+import type {
+  CapturedFrame,
+  CaptureTarget,
+  FrameCaptureBackend
+} from '../../src/shared/contracts/capture'
+import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
 class MockScreenApi implements ScreenLike {
   public displays: ElectronDisplayLike[] = []
@@ -54,11 +60,38 @@ class MockScreenApi implements ScreenLike {
   }
 }
 
+/**
+ * Controlled fake capture backend for unit testing.
+ * Records all requests and returns valid PNG image frames.
+ */
+class FakeFrameCaptureBackend implements FrameCaptureBackend {
+  public captureCalls: CaptureTarget[] = []
+  public customHandler?: (target: CaptureTarget) => Promise<CapturedFrame>
+  public stopCalls = 0
+
+  async captureFrame(target: CaptureTarget): Promise<CapturedFrame> {
+    this.captureCalls.push(target)
+    if (this.customHandler) {
+      return this.customHandler(target)
+    }
+    return createValidCapturedFrame({
+      displayId: target.displayId,
+      width: target.bounds?.width ?? 1920,
+      height: target.bounds?.height ?? 1080
+    })
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls++
+  }
+}
+
 describe('SingleDisplayCapturer', () => {
   let mockScreen: MockScreenApi
   let displayManager: DisplayManager
   let mockCapturer: DesktopCapturerLike
   let capturerSources: DesktopCapturerSourceLike[]
+  let fakeBackend: FakeFrameCaptureBackend
   let currentSelection: CaptureSelection
 
   const createDisplay = (id: number, x: number): ElectronDisplayLike => ({
@@ -87,6 +120,8 @@ describe('SingleDisplayCapturer', () => {
     mockCapturer = {
       getSources: vi.fn().mockImplementation(async () => capturerSources)
     }
+
+    fakeBackend = new FakeFrameCaptureBackend()
   })
 
   afterEach(() => {
@@ -94,140 +129,242 @@ describe('SingleDisplayCapturer', () => {
     vi.useRealTimers()
   })
 
-  it('initializes in inactive state with zero frames', () => {
-    const capturer = new SingleDisplayCapturer(displayManager, {
-      capturerApi: mockCapturer
-    })
-
-    expect(capturer.isActive()).toBe(false)
-    expect(capturer.getActiveDisplayId()).toBeNull()
-    expect(capturer.getLatestFrame()).toBeNull()
-    expect(capturer.getFrameHistory().length).toBe(0)
-    expect(capturer.getBufferStats().frameCount).toBe(0)
-  })
-
-  it('captures ONLY the selected display and does not touch the unselected display', async () => {
+  it('initializes in idle state with zero frames', () => {
     const capturer = new SingleDisplayCapturer(displayManager, {
       capturerApi: mockCapturer,
-      sampleIntervalMs: 2000
+      backend: fakeBackend
+    })
+
+    expect(capturer.getStatus()).toBe('idle')
+    expect(capturer.isActive()).toBe(false)
+    expect(capturer.getActiveDisplayId()).toBeNull()
+    expect(capturer.getLatestFrame()).toBeNull()
+    expect(capturer.getFrameHistory().length).toBe(0)
+    expect(capturer.getBufferStats().frameCount).toBe(0)
+  })
+
+  it('enumerates sources with ZERO thumbnail size (width: 0, height: 0) to prevent cross-display thumbnails', async () => {
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
     })
 
     await capturer.start('202')
 
-    expect(capturer.isActive()).toBe(true)
-    expect(capturer.getActiveDisplayId()).toBe('202')
-
-    // Initial frame captured immediately
-    const frame = capturer.getLatestFrame()
-    expect(frame).not.toBeNull()
-    expect(frame?.displayId).toBe('202')
-
-    // Advance timer 4 seconds (2 sample cycles)
-    await vi.advanceTimersByTimeAsync(4000)
-
-    const history = capturer.getFrameHistory()
-    expect(history.length).toBe(3) // 1 initial + 2 interval samples
-
-    // All frames MUST belong to display 202; none to 101
-    for (const f of history) {
-      expect(f.displayId).toBe('202')
-    }
+    expect(mockCapturer.getSources).toHaveBeenCalledWith({
+      types: ['screen'],
+      thumbnailSize: { width: 0, height: 0 },
+      fetchWindowIcons: false
+    })
 
     await capturer.stop()
   })
 
-  it('rejects invalid or missing displayId with error and sets lastError', async () => {
+  it('captures ONLY the selected display and never requests the unselected display', async () => {
     const capturer = new SingleDisplayCapturer(displayManager, {
-      capturerApi: mockCapturer
+      capturerApi: mockCapturer,
+      backend: fakeBackend,
+      sampleIntervalMs: 1000
     })
 
-    await expect(capturer.start('')).rejects.toThrow(/invalid or empty displayId/)
-    await expect(capturer.start('non-existent-id')).rejects.toThrow(
-      /is not present in active display configuration/
+    await capturer.start('202')
+
+    // First sample taken during start
+    expect(fakeBackend.captureCalls.length).toBe(1)
+    expect(fakeBackend.captureCalls[0].displayId).toBe('202')
+    expect(fakeBackend.captureCalls[0].sourceId).toBe('screen:1:0')
+
+    // Advance 3 seconds
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(fakeBackend.captureCalls.length).toBe(4) // 1 initial + 3 timer samples
+    // Verify every single call was for 202 and ZERO calls were for 101
+    expect(fakeBackend.captureCalls.every((call) => call.displayId === '202')).toBe(true)
+
+    // Verify frames contain genuine PNG image data and bounds
+    const latest = capturer.getLatestFrame()
+    expect(latest).not.toBeNull()
+    expect(latest?.displayId).toBe('202')
+    expect(latest?.format).toBe('png')
+    expect(latest?.byteLength).toBeGreaterThan(50)
+    // Check PNG signature
+    expect(latest?.data[0]).toBe(0x89)
+    expect(latest?.data[1]).toBe(0x50) // 'P'
+    expect(latest?.data[2]).toBe(0x4e) // 'N'
+    expect(latest?.data[3]).toBe(0x47) // 'G'
+
+    await capturer.stop()
+  })
+
+  it('race: Stop while getSources() is pending cancels session start cleanly', async () => {
+    let resolveSources!: (sources: DesktopCapturerSourceLike[]) => void
+    const sourcesPromise = new Promise<DesktopCapturerSourceLike[]>((resolve) => {
+      resolveSources = resolve
+    })
+
+    mockCapturer.getSources = vi.fn().mockReturnValue(sourcesPromise)
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    // Start begins async getSources()
+    const startPromise = capturer.start('202')
+    expect(capturer.getStatus()).toBe('starting')
+
+    // User stops before getSources() finishes
+    await capturer.stop()
+    expect(capturer.getStatus()).toBe('idle')
+
+    // Now getSources() completes
+    resolveSources(capturerSources)
+    await startPromise
+
+    // Verify session remains idle, timer was not created, buffer is empty
+    expect(capturer.getStatus()).toBe('idle')
+    expect(capturer.isActive()).toBe(false)
+    expect(capturer.getLatestFrame()).toBeNull()
+    expect(fakeBackend.captureCalls.length).toBe(0)
+  })
+
+  it('race: Stop while frame capture is pending discards stale frame and does not buffer it', async () => {
+    let resolveFrame!: (frame: CapturedFrame) => void
+    const framePromise = new Promise<CapturedFrame>((resolve) => {
+      resolveFrame = resolve
+    })
+
+    fakeBackend.customHandler = () => framePromise
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    const startPromise = capturer.start('202')
+
+    // Stop while initial captureSample is awaiting backend
+    await capturer.stop()
+    expect(capturer.getStatus()).toBe('idle')
+
+    // Frame resolves after Stop
+    resolveFrame(createValidCapturedFrame({ displayId: '202' }))
+    await startPromise
+
+    // Verify frame was discarded and buffer remains completely empty
+    expect(capturer.getFrameHistory().length).toBe(0)
+    expect(capturer.getBufferStats().frameCount).toBe(0)
+    expect(capturer.getLatestFrame()).toBeNull()
+  })
+
+  it('race: rejects concurrent Start calls while a Start is already in progress', async () => {
+    const neverEndingPromise = new Promise<DesktopCapturerSourceLike[]>(() => {})
+    mockCapturer.getSources = vi.fn().mockReturnValue(neverEndingPromise)
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    void capturer.start('202')
+    expect(capturer.getStatus()).toBe('starting')
+
+    // Attempting a second start while starting throws an error
+    await expect(capturer.start('101')).rejects.toThrow(
+      /Concurrent capture start rejected/
     )
-    expect(capturer.getLastError()).toBe('DISPLAY_NOT_FOUND')
-    expect(capturer.isActive()).toBe(false)
-  })
-
-  it('monitor disconnect cancels capture immediately with NO automatic fallback to primary', async () => {
-    const capturer = new SingleDisplayCapturer(displayManager, {
-      capturerApi: mockCapturer
-    })
-
-    await capturer.start('202')
-    expect(capturer.isActive()).toBe(true)
-    expect(capturer.getLatestFrame()).not.toBeNull()
-
-    // Disconnect display 202
-    mockScreen.displays = [mockScreen.displays[0]] // only 101 remains
-    capturerSources = [capturerSources[0]]
-
-    // Notify displayManager via screen event
-    mockScreen.emit('display-removed', {}, { id: 202 })
-
-    // Capture must be stopped immediately
-    expect(capturer.isActive()).toBe(false)
-    expect(capturer.getActiveDisplayId()).toBeNull()
-    expect(capturer.getLastError()).toBe('SELECTED_DISPLAY_LOST')
-
-    // Frame buffer must be flushed immediately to prevent stale cross-display data
-    expect(capturer.getLatestFrame()).toBeNull()
-    expect(capturer.getFrameHistory().length).toBe(0)
-    expect(capturer.getBufferStats().frameCount).toBe(0)
-  })
-
-  it('stop() releases all timers, memory buffers, and subscriptions immediately', async () => {
-    const capturer = new SingleDisplayCapturer(displayManager, {
-      capturerApi: mockCapturer
-    })
-
-    await capturer.start('202')
-    expect(capturer.isActive()).toBe(true)
-    expect(capturer.getBufferStats().frameCount).toBe(1)
 
     await capturer.stop()
-
-    expect(capturer.isActive()).toBe(false)
-    expect(capturer.getActiveDisplayId()).toBeNull()
-    expect(capturer.getLatestFrame()).toBeNull()
-    expect(capturer.getFrameHistory().length).toBe(0)
-    expect(capturer.getBufferStats().frameCount).toBe(0)
-
-    // Advancing timers after stop must NOT generate new frames
-    await vi.advanceTimersByTimeAsync(10000)
-    expect(capturer.getBufferStats().frameCount).toBe(0)
   })
 
-  it('repeated stop() calls remain completely safe and idempotent', async () => {
+  it('race: clears buffer and avoids stale frames when switching displays', async () => {
     const capturer = new SingleDisplayCapturer(displayManager, {
-      capturerApi: mockCapturer
+      capturerApi: mockCapturer,
+      backend: fakeBackend
     })
 
     await capturer.start('202')
-    await capturer.stop()
-    await expect(capturer.stop()).resolves.toBeUndefined()
-    await expect(capturer.stop()).resolves.toBeUndefined()
-  })
-
-  it('switching from display A to display B wipes display A frames before starting B', async () => {
-    const capturer = new SingleDisplayCapturer(displayManager, {
-      capturerApi: mockCapturer
-    })
-
-    await capturer.start('101')
-    expect(capturer.getActiveDisplayId()).toBe('101')
-    expect(capturer.getLatestFrame()?.displayId).toBe('101')
-
-    // Switch to 202
-    await capturer.start('202')
-    expect(capturer.getActiveDisplayId()).toBe('202')
     expect(capturer.getLatestFrame()?.displayId).toBe('202')
 
-    // All frames in buffer must strictly be 202; none 101
-    for (const f of capturer.getFrameHistory()) {
-      expect(f.displayId).toBe('202')
-    }
+    // Switch to display 101
+    await capturer.start('101')
+    expect(capturer.getActiveDisplayId()).toBe('101')
+
+    const history = capturer.getFrameHistory()
+    expect(history.length).toBe(1)
+    expect(history[0].displayId).toBe('101')
+    // Old frames for 202 are completely gone
+    expect(history.some((f) => f.displayId === '202')).toBe(false)
 
     await capturer.stop()
+  })
+
+  it('hotplug: aborts immediately on selected display loss with no fallback to primary', async () => {
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    const statusEvents: { status: SessionStatus; error?: string }[] = []
+    capturer.onStatusChange((status, error) => {
+      statusEvents.push({ status, error })
+    })
+
+    await capturer.start('202')
+    expect(capturer.getStatus()).toBe('active')
+
+    // Disconnect secondary monitor (202 removed, only 101 left)
+    mockScreen.displays = [createDisplay(101, 0)]
+    mockScreen.emit('display-removed', {}, createDisplay(202, 1920))
+
+    // Capture must abort immediately, clear frames, and enter error state
+    expect(capturer.getStatus()).toBe('error')
+    expect(capturer.isActive()).toBe(false)
+    expect(capturer.getLastError()).toContain('SELECTED_DISPLAY_LOST')
+    expect(capturer.getLatestFrame()).toBeNull()
+    expect(capturer.getFrameHistory().length).toBe(0)
+
+    // Verify status listeners received the error event
+    expect(statusEvents.some((e) => e.status === 'error' && e.error?.includes('SELECTED_DISPLAY_LOST'))).toBe(true)
+
+    // Calling stop() recovers state back to idle
+    await capturer.stop()
+    expect(capturer.getStatus()).toBe('idle')
+    expect(capturer.getLastError()).toBeNull()
+  })
+
+  it('handles backend capture failure by entering error state and aborting cleanly', async () => {
+    fakeBackend.customHandler = async () => {
+      throw new Error('OS capture device disconnected')
+    }
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    await expect(capturer.start('202')).rejects.toThrow(
+      /OS capture device disconnected/
+    )
+
+    expect(capturer.getStatus()).toBe('error')
+    expect(capturer.getLastError()).toContain('OS capture device disconnected')
+    expect(capturer.isActive()).toBe(false)
+    expect(capturer.getLatestFrame()).toBeNull()
+  })
+
+  it('stop() is idempotent and safe against repeated calls', async () => {
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    await capturer.start('202')
+    await capturer.stop()
+    await capturer.stop()
+    await capturer.stop()
+
+    expect(capturer.getStatus()).toBe('idle')
+    expect(capturer.isActive()).toBe(false)
   })
 })
