@@ -8,8 +8,9 @@ Tests:
 4. Invalid octopus merge commit (FAIL)
 5. Invalid merge subject with arbitrary changes prefix (FAIL)
 6. Invalid merge subject with non-conforming format (FAIL)
-7. Non-existent git revision handling returns (False, issues, summary) without ValueError (FAIL)
-8. CLI exit code and output on non-existent revision (FAIL with non-zero code)
+7. Invalid merge subject with local branch merge pattern (FAIL)
+8. Non-existent git revision handling returns (False, issues, summary) without ValueError (FAIL)
+9. CLI exit code and output on non-existent revision (FAIL with non-zero code)
 """
 import os
 import shutil
@@ -172,6 +173,28 @@ class TestVerifyOneFileHistory(unittest.TestCase):
 
         passed, issues, summary = validator.audit_history(n=10, git_dir=self.test_dir)
         self.assertFalse(passed, "Expected FAIL for random non-conforming merge subject")
+        self.assertTrue(any("merge commit subject does not follow merge convention" in i for i in issues))
+
+    def test_invalid_merge_subject_local_branch_merge(self):
+        self._write_file("base.txt", "base")
+        self._git(["add", "base.txt"])
+        self._git(["commit", "-m", "chore(test): base"])
+
+        self._git(["checkout", "-b", "feature"])
+        self._write_file("feat.txt", "feature content")
+        self._git(["add", "feat.txt"])
+        self._git(["commit", "-m", "feat(test): add feat"])
+
+        self._git(["checkout", "main"])
+        self._write_file("main_update.txt", "main update")
+        self._git(["add", "main_update.txt"])
+        self._git(["commit", "-m", "chore(test): update main"])
+
+        # Local branch merge subject is forbidden (workflow requires GitHub PR merges only)
+        self._git(["merge", "--no-ff", "feature", "-m", "Merge branch 'feature'"])
+
+        passed, issues, summary = validator.audit_history(n=10, git_dir=self.test_dir)
+        self.assertFalse(passed, "Expected FAIL for local 'Merge branch' subject")
         self.assertTrue(any("merge commit subject does not follow merge convention" in i for i in issues))
 
     def test_nonexistent_git_revision_handling(self):
