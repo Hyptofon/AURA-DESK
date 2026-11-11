@@ -5,8 +5,8 @@
 ## Milestone M0 — Scaffold and governance
 
 - [x] **P0.1** Initialize repo with `electron-vite`, React, TS strict, lint/format, app launch. **Acceptance:** `npm run dev` opens empty app on Windows.
-- [ ] **P0.2** Add AGENTS/rules/skills/documents **one file per commit** and enable Git hooks. **Acceptance:** 2 staged files rejected, 1 accepted.
-- [ ] **P0.3** Configure unit test stack, `npm run typecheck`, `npm run test:unit`, `npm run lint`. **Acceptance:** baseline green, exact commands documented.
+- [x] **P0.2** Add AGENTS/rules/skills/documents **one file per commit** and enable Git hooks. **Acceptance:** 2 staged files rejected, 1 accepted.
+- [x] **P0.3** Configure unit test stack, `npm run typecheck`, `npm run test:unit`, `npm run lint`. **Acceptance:** baseline green, exact commands documented.
 - [ ] **P0.4** Add typed preload/IPC and secure BrowserWindow. **Acceptance:** forbidden IPC denied, no Node in renderer.
 
 ## Milestone M1 — Real Windows capture spike (critical)
