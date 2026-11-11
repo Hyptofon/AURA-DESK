@@ -5,7 +5,7 @@ import {
   type CaptureSelection,
   type SessionStatus,
   type IpcResponse
-} from '../shared/contracts/ipc'
+} from '../shared/contracts/channels'
 
 export interface AuraApi {
   platform: string
@@ -20,7 +20,7 @@ export interface AuraApi {
 /**
  * Safely invoke allowlisted IPC channel and unwrap typed response.
  */
-async function invokeChannel<T>(channel: string, payload?: unknown): Promise<T> {
+export async function invokeChannel<T>(channel: string, payload?: unknown): Promise<T> {
   const response = (await ipcRenderer.invoke(channel, payload)) as IpcResponse<T>
   if (!response || !response.ok) {
     const errorMsg = response?.error?.message || 'IPC request failed'
@@ -44,12 +44,21 @@ export const auraApi: AuraApi = {
     )
 }
 
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('api', auraApi)
-  } catch (error) {
-    console.error('Failed to expose api to main world', error)
+/**
+ * Exposes the Aura API bridge in main world with strict fail-closed context isolation.
+ */
+export function exposeAuraApi(
+  bridge = contextBridge,
+  isContextIsolated = process.contextIsolated
+): void {
+  if (!isContextIsolated) {
+    throw new Error('Security violation: contextIsolation must be enabled to expose Aura API')
   }
-} else {
-  ;(globalThis as { api?: AuraApi }).api = auraApi
+  bridge.exposeInMainWorld('api', auraApi)
+}
+
+try {
+  exposeAuraApi()
+} catch (error) {
+  console.error('Failed to initialize preload API:', error)
 }
