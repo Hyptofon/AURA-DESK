@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
 import { isAllowedNavigation } from './security/navigation-guard'
-import { DisplayManager } from './displays/display-manager'
+import { DisplayManager, forwardDisplayEvents } from './displays/display-manager'
 
 let mainWindow: BrowserWindow | null = null
 let displayManager: DisplayManager | null = null
@@ -71,7 +71,11 @@ function createWindow(): void {
     displayManager
   )
 
+  // Forward validated display hotplug and metrics events to authorized window
+  const unsubscribeDisplays = forwardDisplayEvents(mainWindow.webContents, displayManager)
+
   mainWindow.on('closed', () => {
+    unsubscribeDisplays()
     unregisterIpcHandlers()
     displayManager?.stopListening()
     displayManager = null
