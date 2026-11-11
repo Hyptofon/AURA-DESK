@@ -10,10 +10,11 @@ import {
 } from '../../src/main/ipc/register-handlers'
 import {
   IPC_CHANNELS,
+  DisplayConfigurationSchema,
   type IpcResponse,
   type DisplayConfiguration
 } from '../../src/shared/contracts/ipc'
-import { DisplayManager } from '../../src/main/displays/display-manager'
+import { DisplayManager, forwardDisplayEvents } from '../../src/main/displays/display-manager'
 
 class MockIpcMain implements IpcMainLike {
   public handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown> | unknown>()
@@ -431,6 +432,197 @@ describe('Main Process IPC Handlers', () => {
     it('executes allowed channel successfully through dispatcher with valid event', async () => {
       const res = await dispatchIpcCall(IPC_CHANNELS.SESSION_GET_STATE, null, mockIpc.handlers, makeValidEvent())
       expect(res.ok).toBe(true)
+    })
+  })
+
+  describe('Display Hotplug Event Forwarding Pipeline', () => {
+    it('pipeline delivers validated aura:displays-changed message from screen mock to WebContents', () => {
+      const mockWebContents = {
+        id: 1,
+        isDestroyed: vi.fn().mockReturnValue(false),
+        send: vi.fn()
+      }
+
+      const screenApi = {
+        displays: [
+          {
+            id: 1,
+            label: 'Monitor 1',
+            bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+            workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1.0,
+            rotation: 0
+          }
+        ],
+        primaryDisplay: null as unknown,
+        listeners: {} as Record<string, ((...args: unknown[]) => void)[]>,
+        getAllDisplays() {
+          return this.displays
+        },
+        getPrimaryDisplay() {
+          return this.displays[0]
+        },
+        on(event: string, fn: (...args: unknown[]) => void) {
+          if (!this.listeners[event]) this.listeners[event] = []
+          this.listeners[event].push(fn)
+          return this
+        },
+        removeListener(event: string, fn: (...args: unknown[]) => void) {
+          if (this.listeners[event]) {
+            this.listeners[event] = this.listeners[event].filter((l) => l !== fn)
+          }
+          return this
+        }
+      }
+
+      const manager = new DisplayManager(screenApi as never)
+      const stopForwarding = forwardDisplayEvents(mockWebContents, manager)
+
+      // Simulate a hotplug addition
+      screenApi.displays.push({
+        id: 2,
+        label: 'Monitor 2',
+        bounds: { x: 1920, y: 0, width: 1920, height: 1080 },
+        workArea: { x: 1920, y: 0, width: 1920, height: 1040 },
+        scaleFactor: 1.0,
+        rotation: 0
+      })
+
+      // Trigger the screen listener
+      screenApi.listeners['display-added']?.[0]?.({}, screenApi.displays[1])
+
+      expect(mockWebContents.send).toHaveBeenCalledTimes(1)
+      expect(mockWebContents.send).toHaveBeenCalledWith(
+        IPC_CHANNELS.DISPLAYS_CHANGED,
+        expect.anything()
+      )
+
+      // Verify the sent payload strictly conforms to DisplayConfigurationSchema
+      const sentPayload = mockWebContents.send.mock.calls[0][1]
+      const validationResult = DisplayConfigurationSchema.safeParse(sentPayload)
+      expect(validationResult.success).toBe(true)
+      if (validationResult.success) {
+        expect(validationResult.data.count).toBe(2)
+        expect(validationResult.data.isMultiDisplay).toBe(true)
+      }
+
+      stopForwarding()
+    })
+
+    it('suppresses event delivery if WebContents is destroyed', () => {
+      const destroyedWebContents = {
+        isDestroyed: vi.fn().mockReturnValue(true),
+        send: vi.fn()
+      }
+
+      const screenApi = {
+        displays: [
+          {
+            id: 1,
+            bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+            workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1.0
+          }
+        ],
+        listeners: {} as Record<string, ((...args: unknown[]) => void)[]>,
+        getAllDisplays() {
+          return this.displays
+        },
+        getPrimaryDisplay() {
+          return this.displays[0]
+        },
+        on(event: string, fn: (...args: unknown[]) => void) {
+          if (!this.listeners[event]) this.listeners[event] = []
+          this.listeners[event].push(fn)
+          return this
+        },
+        removeListener(event: string, fn: (...args: unknown[]) => void) {
+          if (this.listeners[event]) {
+            this.listeners[event] = this.listeners[event].filter((l) => l !== fn)
+          }
+          return this
+        }
+      }
+
+      const manager = new DisplayManager(screenApi as never)
+      const stopForwarding = forwardDisplayEvents(destroyedWebContents, manager)
+
+      screenApi.displays.push({
+        id: 2,
+        bounds: { x: 1920, y: 0, width: 1920, height: 1080 },
+        workArea: { x: 1920, y: 0, width: 1920, height: 1040 },
+        scaleFactor: 1.0
+      })
+      screenApi.listeners['display-added']?.[0]?.({}, screenApi.displays[1])
+
+      expect(destroyedWebContents.send).not.toHaveBeenCalled()
+      stopForwarding()
+    })
+
+    it('window recreation does not duplicate listeners when cleaned up on close', () => {
+      const webContents1 = {
+        isDestroyed: vi.fn().mockReturnValue(false),
+        send: vi.fn()
+      }
+      const webContents2 = {
+        isDestroyed: vi.fn().mockReturnValue(false),
+        send: vi.fn()
+      }
+
+      const screenApi = {
+        displays: [
+          {
+            id: 1,
+            bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+            workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1.0
+          }
+        ],
+        listeners: {} as Record<string, ((...args: unknown[]) => void)[]>,
+        getAllDisplays() {
+          return this.displays
+        },
+        getPrimaryDisplay() {
+          return this.displays[0]
+        },
+        on(event: string, fn: (...args: unknown[]) => void) {
+          if (!this.listeners[event]) this.listeners[event] = []
+          this.listeners[event].push(fn)
+          return this
+        },
+        removeListener(event: string, fn: (...args: unknown[]) => void) {
+          if (this.listeners[event]) {
+            this.listeners[event] = this.listeners[event].filter((l) => l !== fn)
+          }
+          return this
+        }
+      }
+
+      const manager = new DisplayManager(screenApi as never)
+
+      // First window creation
+      const stop1 = forwardDisplayEvents(webContents1, manager)
+
+      // First window closes
+      stop1()
+
+      // Second window created (recreation)
+      const stop2 = forwardDisplayEvents(webContents2, manager)
+
+      // Hotplug event
+      screenApi.displays.push({
+        id: 2,
+        bounds: { x: 1920, y: 0, width: 1920, height: 1080 },
+        workArea: { x: 1920, y: 0, width: 1920, height: 1040 },
+        scaleFactor: 1.0
+      })
+      screenApi.listeners['display-added']?.[0]?.({}, screenApi.displays[1])
+
+      // webContents1 must not be called; webContents2 called exactly once
+      expect(webContents1.send).not.toHaveBeenCalled()
+      expect(webContents2.send).toHaveBeenCalledTimes(1)
+
+      stop2()
     })
   })
 
