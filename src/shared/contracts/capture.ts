@@ -3,7 +3,7 @@
  * Free of external npm dependencies to allow safe import in sandboxed preload or core modules.
  */
 
-import type { DisplayBounds } from './channels'
+import type { DisplayBounds, SessionStatus } from './channels'
 
 /**
  * Metadata and payload of a captured screen frame.
@@ -17,6 +17,25 @@ export interface CapturedFrame {
   byteLength: number
   format: 'jpeg' | 'png'
   hash?: string
+}
+
+/**
+ * Target descriptor for a single frame capture request.
+ */
+export interface CaptureTarget {
+  sourceId: string
+  displayId: string
+  bounds?: DisplayBounds
+}
+
+/**
+ * Pluggable frame capture backend port.
+ * Allows decoupling source resolution from the underlying capture mechanism
+ * (e.g. MediaStream, Windows native helper, or test adapter).
+ */
+export interface FrameCaptureBackend {
+  captureFrame(target: CaptureTarget): Promise<CapturedFrame>
+  stop?(): Promise<void> | void
 }
 
 /**
@@ -45,6 +64,9 @@ export interface FrameBufferStats {
 export interface ScreenCapturePort {
   start(displayId: string): Promise<void>
   stop(): Promise<void>
+  getStatus(): SessionStatus
+  getLastError(): string | null
+  onStatusChange(listener: (status: SessionStatus, error?: string) => void): () => void
   getLatestFrame(): CapturedFrame | null
   getFrameHistory(): CapturedFrame[]
   getBufferStats(): FrameBufferStats
