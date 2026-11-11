@@ -22,11 +22,11 @@
 - P0.1 Skeleton: `electron-vite`, React 18, TypeScript strict, `tsconfig.node.json`, `tsconfig.web.json`, secure Electron main process with sandbox and CSP, preload typed bridge, and Quiet Instrument styled React App.
 - P0.3 Testing & Quality Stack: Vitest, React Testing Library, ESLint 9 flat config, jsdom DOM environment, baseline contract test ([test/unit/preload-api.test.ts](file:///e:/Windows_AI_Copilot/test/unit/preload-api.test.ts)) and UI component test ([src/renderer/src/__tests__/App.test.tsx](file:///e:/Windows_AI_Copilot/src/renderer/src/__tests__/App.test.tsx)).
 - Workflow & PR Governance: established feature branch and mandatory Pull Request policy with independent code review (ChatGPT) in `docs/DEVELOPMENT_WORKFLOW.md`.
-- History Validator & Review Fixes: updated `scripts/verify-one-file-history.py` to support approved two-parent PR merge commits while rejecting octopus merges, added regression test suite `scripts/test-verify-one-file-history.py` (5 tests passing).
+- History Validator & Review Fixes: updated `scripts/verify-one-file-history.py` to support structurally valid two-parent PR merge commits (`Merge pull request #...` and `Merge branch '...'`) while strictly rejecting octopus merges and arbitrary merge subjects; ensured uniform `(passed, issues, summary)` error handling on invalid Git revisions; added 8-case regression test suite `scripts/test-verify-one-file-history.py` (8/8 PASS); enriched `.agents/skills/atomic-git-commits/SKILL.md` and `docs/DEVELOPMENT_WORKFLOW.md` to explicitly distinguish structural merge compliance from independent review and user authorization.
 
 ## Latest evidence
 
-- `py -3 scripts/test-verify-one-file-history.py`: PASS (5 regression tests covering single-file commits, multi-file rejection, 2-parent merges, octopus merges, and subject formats).
+- `py -3 scripts/test-verify-one-file-history.py`: PASS (8 regression tests covering single-file commits, multi-file rejection, 2-parent merges, octopus merges, arbitrary merge subjects, non-conforming formats, non-existent revision handling, and CLI exit code).
 
 - `py -3 scripts/validate-blueprint.py`: PASS (18 skills, 5 rules, 12 expected files).
 - `py -3 scripts/verify-one-file-history.py 100`: PASS (all commits touch exactly 1 file).
