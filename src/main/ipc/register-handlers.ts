@@ -175,7 +175,7 @@ let currentCaptureSelection: CaptureSelection = { mode: 'both' }
 let activeDisplayManager: DisplayManager | null = null
 
 export function getCurrentSessionStatus(): SessionStatus {
-  return currentSessionStatus
+  return activeCapturer ? activeCapturer.getStatus() : currentSessionStatus
 }
 
 export function setSessionStatus(status: SessionStatus): void {
@@ -198,6 +198,7 @@ export function setDisplayManager(manager: DisplayManager | null): void {
 }
 
 let activeCapturer: SingleDisplayCapturer | null = null
+let activeStatusUnsubscribe: (() => void) | null = null
 
 export function getSingleDisplayCapturer(
   manager: DisplayManager = getDisplayManager()
@@ -239,6 +240,27 @@ export function registerIpcHandlers(
 
   const manager = displayManager ?? getDisplayManager()
   const capturer = singleDisplayCapturer ?? getSingleDisplayCapturer(manager)
+
+  // Forward validated session status transitions from capturer to trusted window
+  const webContents =
+    'trustedWebContents' in validatorOrContext
+      ? (validatorOrContext.trustedWebContents as {
+          isDestroyed?(): boolean
+          send?(channel: string, ...args: unknown[]): void
+        })
+      : null
+
+  if (webContents?.send) {
+    activeStatusUnsubscribe = capturer.onStatusChange((status, error) => {
+      if (!webContents.isDestroyed || !webContents.isDestroyed()) {
+        try {
+          webContents.send!(IPC_CHANNELS.SESSION_STATUS_CHANGED, { status, error })
+        } catch (err) {
+          console.error('Failed to forward session status change event:', err)
+        }
+      }
+    })
+  }
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
     const auth = validator.validate(event)
@@ -293,7 +315,7 @@ export function registerIpcHandlers(
       return {
         ok: true,
         data: {
-          status: currentSessionStatus
+          status: capturer.getStatus()
         }
       }
     }
@@ -380,13 +402,11 @@ export function registerIpcHandlers(
       }
 
       try {
-        currentSessionStatus = 'starting'
         await capturer.start(currentCaptureSelection.displayId)
-        currentSessionStatus = 'active'
 
         const responsePayload = {
           success: true,
-          status: 'active' as const,
+          status: capturer.getStatus(),
           displayId: currentCaptureSelection.displayId
         }
         return {
@@ -394,7 +414,6 @@ export function registerIpcHandlers(
           data: SessionStartResponseSchema.parse(responsePayload)
         }
       } catch (err: unknown) {
-        currentSessionStatus = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         return {
           ok: false,
@@ -421,13 +440,12 @@ export function registerIpcHandlers(
         }
       }
 
-      currentSessionStatus = 'stopping'
       await capturer.stop()
-      currentSessionStatus = 'idle'
 
       const responsePayload = {
         success: true,
-        status: 'idle' as const
+        status: capturer.getStatus()
+      }
       }
       return {
         ok: true,
@@ -474,6 +492,10 @@ export function registerIpcHandlers(
  * Clean teardown of registered handlers.
  */
 export function unregisterIpcHandlers(ipc: IpcMainLike = ipcMain): void {
+  if (activeStatusUnsubscribe) {
+    activeStatusUnsubscribe()
+    activeStatusUnsubscribe = null
+  }
   for (const channel of Object.values(IPC_CHANNELS)) {
     try {
       ipc.removeHandler(channel)
