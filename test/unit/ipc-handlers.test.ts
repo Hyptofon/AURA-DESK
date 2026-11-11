@@ -5,7 +5,8 @@ import {
   dispatchIpcCall,
   setSessionStatus,
   type IpcMainLike,
-  type IpcInvokeEventLike
+  type IpcInvokeEventLike,
+  type FrameLike
 } from '../../src/main/ipc/register-handlers'
 import { IPC_CHANNELS, type IpcResponse } from '../../src/shared/contracts/ipc'
 
@@ -23,11 +24,36 @@ class MockIpcMain implements IpcMainLike {
 
 describe('Main Process IPC Handlers', () => {
   let mockIpc: MockIpcMain
+  const defaultMainFrame: FrameLike = {
+    url: 'http://localhost:5173/index.html',
+    parent: null
+  }
+  const defaultWebContents = {
+    id: 1,
+    name: 'main-window-webcontents',
+    mainFrame: defaultMainFrame
+  }
+  const defaultContext = {
+    trustedWebContents: defaultWebContents,
+    trustedOrigin: 'http://localhost:5173'
+  }
+
+  const makeValidEvent = (): IpcInvokeEventLike => ({
+    sender: defaultWebContents,
+    senderFrame: defaultMainFrame
+  })
 
   beforeEach(() => {
     mockIpc = new MockIpcMain()
     setSessionStatus('idle')
-    registerIpcHandlers(mockIpc)
+    registerIpcHandlers(mockIpc, defaultContext)
+  })
+
+  it('fails closed and throws error if registered without authorization context', () => {
+    const unconfiguredIpc = new MockIpcMain()
+    expect(() => registerIpcHandlers(unconfiguredIpc)).toThrow(
+      /registerIpcHandlers requires an explicit authorization validator or context/
+    )
   })
 
   it('registers all required allowed channels', () => {
@@ -36,9 +62,13 @@ describe('Main Process IPC Handlers', () => {
     expect(mockIpc.handlers.has(IPC_CHANNELS.SESSION_SET_SELECTION)).toBe(true)
   })
 
-  it('handles APP_GET_INFO and returns valid metadata', async () => {
+  it('handles APP_GET_INFO and returns valid metadata when event is valid', async () => {
     const handler = mockIpc.handlers.get(IPC_CHANNELS.APP_GET_INFO)!
-    const res = (await handler(null)) as IpcResponse<{ name: string; version: string; platform: string }>
+    const res = (await handler(makeValidEvent())) as IpcResponse<{
+      name: string
+      version: string
+      platform: string
+    }>
 
     expect(res.ok).toBe(true)
     if (res.ok) {
@@ -48,10 +78,10 @@ describe('Main Process IPC Handlers', () => {
     }
   })
 
-  it('handles SESSION_GET_STATE and returns current status', async () => {
+  it('handles SESSION_GET_STATE and returns current status when event is valid', async () => {
     setSessionStatus('active')
     const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
-    const res = (await handler(null)) as IpcResponse<{ status: string }>
+    const res = (await handler(makeValidEvent())) as IpcResponse<{ status: string }>
 
     expect(res.ok).toBe(true)
     if (res.ok) {
@@ -60,9 +90,12 @@ describe('Main Process IPC Handlers', () => {
   })
 
   describe('SESSION_SET_SELECTION validation', () => {
-    it('accepts valid both mode selection', async () => {
+    it('accepts valid both mode selection with valid event', async () => {
       const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
-      const res = (await handler(null, { mode: 'both' })) as IpcResponse<{ success: boolean; selection: { mode: string } }>
+      const res = (await handler(makeValidEvent(), { mode: 'both' })) as IpcResponse<{
+        success: boolean
+        selection: { mode: string }
+      }>
 
       expect(res.ok).toBe(true)
       if (res.ok) {
@@ -71,9 +104,9 @@ describe('Main Process IPC Handlers', () => {
       }
     })
 
-    it('accepts valid single mode selection with displayId', async () => {
+    it('accepts valid single mode selection with displayId and valid event', async () => {
       const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
-      const res = (await handler(null, {
+      const res = (await handler(makeValidEvent(), {
         mode: 'single',
         displayId: 'display-1'
       })) as IpcResponse<{ success: boolean; selection: { mode: string; displayId: string } }>
@@ -86,9 +119,9 @@ describe('Main Process IPC Handlers', () => {
       }
     })
 
-    it('rejects invalid single mode missing displayId with Zod error', async () => {
+    it('rejects invalid single mode missing displayId with Zod error after authorization passes', async () => {
       const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
-      const res = (await handler(null, { mode: 'single' })) as IpcResponse<unknown>
+      const res = (await handler(makeValidEvent(), { mode: 'single' })) as IpcResponse<unknown>
 
       expect(res.ok).toBe(false)
       if (!res.ok) {
@@ -98,7 +131,10 @@ describe('Main Process IPC Handlers', () => {
 
     it('rejects invalid single mode with whitespace-only displayId', async () => {
       const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
-      const res = (await handler(null, { mode: 'single', displayId: '   ' })) as IpcResponse<unknown>
+      const res = (await handler(makeValidEvent(), {
+        mode: 'single',
+        displayId: '   '
+      })) as IpcResponse<unknown>
 
       expect(res.ok).toBe(false)
       if (!res.ok) {
@@ -108,7 +144,10 @@ describe('Main Process IPC Handlers', () => {
 
     it('rejects payload with unexpected extra keys in strict schema', async () => {
       const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
-      const res = (await handler(null, { mode: 'both', injectedKey: true })) as IpcResponse<unknown>
+      const res = (await handler(makeValidEvent(), {
+        mode: 'both',
+        injectedKey: true
+      })) as IpcResponse<unknown>
 
       expect(res.ok).toBe(false)
       if (!res.ok) {
@@ -118,7 +157,7 @@ describe('Main Process IPC Handlers', () => {
 
     it('rejects invalid mode with Zod error', async () => {
       const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
-      const res = (await handler(null, { mode: 'unknown-mode' })) as IpcResponse<unknown>
+      const res = (await handler(makeValidEvent(), { mode: 'unknown-mode' })) as IpcResponse<unknown>
 
       expect(res.ok).toBe(false)
       if (!res.ok) {
@@ -127,67 +166,130 @@ describe('Main Process IPC Handlers', () => {
     })
   })
 
-  describe('Sender and Frame Authorization', () => {
-    const trustedWebContents = { id: 1, name: 'main-window-webcontents' }
+  describe('Fail-Closed Sender and Frame Authorization', () => {
     const untrustedWebContents = { id: 99, name: 'evil-webcontents' }
-    const trustedOrigin = 'http://localhost:5173'
 
-    let securedIpc: MockIpcMain
+    it('Scenario 1: denies invocation when senderFrame is missing (undefined)', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const missingFrameEvent: IpcInvokeEventLike = {
+        sender: defaultWebContents
+      }
 
-    beforeEach(() => {
-      securedIpc = new MockIpcMain()
-      registerIpcHandlers(securedIpc, {
-        trustedWebContents,
-        trustedOrigin
-      })
+      const res = (await handler(missingFrameEvent)) as IpcResponse<unknown>
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_FRAME')
+        expect(res.error.message).toContain('senderFrame is missing, null, or destroyed')
+      }
     })
 
-    it('allows invocation from trusted WebContents and top-level frame matching trusted origin', async () => {
-      const handler = securedIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
-      const validEvent: IpcInvokeEventLike = {
-        sender: trustedWebContents,
+    it('Scenario 2: denies invocation when senderFrame is explicitly null', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const nullFrameEvent: IpcInvokeEventLike = {
+        sender: defaultWebContents,
+        senderFrame: null
+      }
+
+      const res = (await handler(nullFrameEvent)) as IpcResponse<unknown>
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_FRAME')
+        expect(res.error.message).toContain('senderFrame is missing, null, or destroyed')
+      }
+    })
+
+    it('Scenario 3: denies invocation when senderFrame.url is empty or whitespace', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const emptyUrlEvent: IpcInvokeEventLike = {
+        sender: defaultWebContents,
+        senderFrame: { url: '   ', parent: null }
+      }
+
+      const res = (await handler(emptyUrlEvent)) as IpcResponse<unknown>
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_FRAME')
+        expect(res.error.message).toContain('senderFrame URL is missing or empty')
+      }
+    })
+
+    it('Scenario 4: denies invocation when senderFrame does not match trustedWebContents.mainFrame', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const wrongMainFrameEvent: IpcInvokeEventLike = {
+        sender: defaultWebContents,
         senderFrame: {
           url: 'http://localhost:5173/index.html',
           parent: null
         }
       }
 
-      const res = (await handler(validEvent)) as IpcResponse<unknown>
+      const res = (await handler(wrongMainFrameEvent)) as IpcResponse<unknown>
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_FRAME')
+        expect(res.error.message).toContain('does not match trustedWebContents.mainFrame')
+      }
+    })
+
+    it('Scenario 5: denies invocation when event is null or not an object', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const res = (await handler(null)) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
+        expect(res.error.message).toContain('requires a valid event with authorized sender')
+      }
+    })
+
+    it('Scenario 6: allows invocation with valid trusted mainFrame + valid payload', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
+      const res = (await handler(makeValidEvent(), { mode: 'both' })) as IpcResponse<{
+        success: boolean
+        selection: { mode: string }
+      }>
+
       expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.data.success).toBe(true)
+        expect(res.data.selection.mode).toBe('both')
+      }
+    })
+
+    it('Scenario 7: returns INVALID_PAYLOAD with valid trusted mainFrame + invalid payload', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
+      const res = (await handler(makeValidEvent(), { mode: 'invalid-mode' })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('INVALID_PAYLOAD')
+      }
     })
 
     it('denies invocation from untrusted WebContents sender', async () => {
-      const handler = securedIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
       const invalidSenderEvent: IpcInvokeEventLike = {
         sender: untrustedWebContents,
-        senderFrame: {
-          url: 'http://localhost:5173/index.html',
-          parent: null
-        }
+        senderFrame: defaultMainFrame
       }
 
       const res = (await handler(invalidSenderEvent)) as IpcResponse<unknown>
       expect(res.ok).toBe(false)
       if (!res.ok) {
         expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
-        expect(res.error.message).toContain('untrusted WebContents')
-      }
-    })
-
-    it('denies invocation when event is missing or null when trusted sender is configured', async () => {
-      const handler = securedIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
-      const res = (await handler(null)) as IpcResponse<unknown>
-
-      expect(res.ok).toBe(false)
-      if (!res.ok) {
-        expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
+        expect(res.error.message).toContain('untrusted or missing WebContents sender')
       }
     })
 
     it('denies invocation from nested frame / iframe with parent !== null', async () => {
-      const handler = securedIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      // Create a webContents with no fixed mainFrame reference to test structural hierarchy
+      const dynamicWebContents = { id: 2 }
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(customIpc, { trustedWebContents: dynamicWebContents })
+
+      const handler = customIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
       const iframeEvent: IpcInvokeEventLike = {
-        sender: trustedWebContents,
+        sender: dynamicWebContents,
         senderFrame: {
           url: 'http://localhost:5173/embed.html',
           parent: { id: 'parent-frame' }
@@ -202,32 +304,25 @@ describe('Main Process IPC Handlers', () => {
       }
     })
 
-    it('denies invocation when frame.top does not match frame', async () => {
-      const handler = securedIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
-      const frameObj = { url: 'http://localhost:5173/sub.html', parent: null }
-      const iframeEvent: IpcInvokeEventLike = {
-        sender: trustedWebContents,
-        senderFrame: {
-          ...frameObj,
-          top: { id: 'different-root-frame' }
-        }
-      }
-
-      const res = (await handler(iframeEvent)) as IpcResponse<unknown>
-      expect(res.ok).toBe(false)
-      if (!res.ok) {
-        expect(res.error.code).toBe('UNAUTHORIZED_FRAME')
-      }
-    })
-
     it('denies invocation when frame URL origin does not match trustedOrigin', async () => {
-      const handler = securedIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const untrustedOriginFrame: FrameLike = {
+        url: 'https://attacker.example.com/exploit.html',
+        parent: null
+      }
+      const webContentsWithAttackerFrame = {
+        id: 3,
+        mainFrame: untrustedOriginFrame
+      }
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(customIpc, {
+        trustedWebContents: webContentsWithAttackerFrame,
+        trustedOrigin: 'http://localhost:5173'
+      })
+
+      const handler = customIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
       const untrustedOriginEvent: IpcInvokeEventLike = {
-        sender: trustedWebContents,
-        senderFrame: {
-          url: 'https://attacker.example.com/exploit.html',
-          parent: null
-        }
+        sender: webContentsWithAttackerFrame,
+        senderFrame: untrustedOriginFrame
       }
 
       const res = (await handler(untrustedOriginEvent)) as IpcResponse<unknown>
@@ -237,43 +332,11 @@ describe('Main Process IPC Handlers', () => {
         expect(res.error.message).toContain('untrusted frame origin')
       }
     })
-
-    it('validates payload only after sender authorization passes', async () => {
-      const handler = securedIpc.handlers.get(IPC_CHANNELS.SESSION_SET_SELECTION)!
-      const validSenderInvalidPayload: IpcInvokeEventLike = {
-        sender: trustedWebContents,
-        senderFrame: {
-          url: 'http://localhost:5173/',
-          parent: null
-        }
-      }
-
-      // With trusted sender, invalid payload yields INVALID_PAYLOAD (not UNAUTHORIZED_SENDER)
-      const res = (await handler(validSenderInvalidPayload, { mode: 'invalid' })) as IpcResponse<unknown>
-      expect(res.ok).toBe(false)
-      if (!res.ok) {
-        expect(res.error.code).toBe('INVALID_PAYLOAD')
-      }
-
-      // With untrusted sender, even invalid payload yields UNAUTHORIZED_SENDER
-      const untrustedSenderEvent: IpcInvokeEventLike = {
-        sender: untrustedWebContents,
-        senderFrame: {
-          url: 'http://localhost:5173/',
-          parent: null
-        }
-      }
-      const resUntrusted = (await handler(untrustedSenderEvent, { mode: 'invalid' })) as IpcResponse<unknown>
-      expect(resUntrusted.ok).toBe(false)
-      if (!resUntrusted.ok) {
-        expect(resUntrusted.error.code).toBe('UNAUTHORIZED_SENDER')
-      }
-    })
   })
 
   describe('Channel authorization and dispatch gate', () => {
     it('denies execution on forbidden channels', async () => {
-      const res = await dispatchIpcCall('shell:exec', { cmd: 'calc' }, mockIpc.handlers)
+      const res = await dispatchIpcCall('shell:exec', { cmd: 'calc' }, mockIpc.handlers, makeValidEvent())
       expect(res.ok).toBe(false)
       if (!res.ok) {
         expect(res.error.code).toBe('FORBIDDEN_CHANNEL')
@@ -281,8 +344,8 @@ describe('Main Process IPC Handlers', () => {
       }
     })
 
-    it('executes allowed channel successfully through dispatcher', async () => {
-      const res = await dispatchIpcCall(IPC_CHANNELS.SESSION_GET_STATE, null, mockIpc.handlers)
+    it('executes allowed channel successfully through dispatcher with valid event', async () => {
+      const res = await dispatchIpcCall(IPC_CHANNELS.SESSION_GET_STATE, null, mockIpc.handlers, makeValidEvent())
       expect(res.ok).toBe(true)
     })
   })
