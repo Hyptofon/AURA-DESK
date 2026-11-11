@@ -1,6 +1,6 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-11. **Current status:** `M0 IN PROGRESS`.
+**Last verified:** 2026-11-11. **Current status:** `M0 COMPLETED, M1 IN PROGRESS`.
 
 ## Summary
 
@@ -13,7 +13,7 @@
 
 ## Current milestone
 
-**M0 — Scaffold and governance** (P0.1, P0.2, P0.3 completed and verified).
+**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4).
 
 ## Verified deliverables
 
@@ -23,8 +23,8 @@
 - P0.3 Testing & Quality Stack: Vitest, React Testing Library, ESLint 9 flat config, jsdom DOM environment, baseline contract test ([test/unit/preload-api.test.ts](file:///e:/Windows_AI_Copilot/test/unit/preload-api.test.ts)) and UI component test ([src/renderer/src/__tests__/App.test.tsx](file:///e:/Windows_AI_Copilot/src/renderer/src/__tests__/App.test.tsx)).
 - Workflow & PR Governance: established feature branch and mandatory Pull Request policy with independent code review (ChatGPT) in `docs/DEVELOPMENT_WORKFLOW.md`.
 - History Validator & Review Fixes: updated `scripts/verify-one-file-history.py` to support structurally valid two-parent GitHub PR merge commits (`Merge pull request #...`) while strictly rejecting octopus merges, arbitrary merge subjects, and local branch merges; ensured uniform `(passed, issues, summary)` error handling on invalid Git revisions; added 9-case regression test suite `scripts/test-verify-one-file-history.py` (9/9 PASS); enriched `.agents/skills/atomic-git-commits/SKILL.md` and `docs/DEVELOPMENT_WORKFLOW.md` to mandate SHA verification discipline and align with GitHub PR workflow.
-- P0.4 Typed IPC Bridge & Secure BrowserWindow (IN REVIEW): Zod runtime validation at IPC boundary (`CaptureSelectionSchema`, `SessionStatusSchema`, `AppInfoSchema`), strict channel allowlist, main process validated handlers with dispatch gate, typed preload bridge with narrow invoke methods, BrowserWindow security hardening (sandbox, contextIsolation, nodeIntegration: false, webSecurity, navigation controls, window open handler action: 'deny'), and 32 unit/contract tests across 4 test suites passing green.
-- P0.4 Security & Code Review Fixes (IN REVIEW, PR #2): resolved all findings from independent code review:
+- P0.4 Typed IPC Bridge & Secure BrowserWindow (COMPLETED & MERGED, PR #2): Zod runtime validation at IPC boundary (`CaptureSelectionSchema`, `SessionStatusSchema`, `AppInfoSchema`), strict channel allowlist, main process validated handlers with dispatch gate, typed preload bridge with narrow invoke methods, BrowserWindow security hardening (sandbox, contextIsolation, nodeIntegration: false, webSecurity, navigation controls, window open handler action: 'deny'), and 32 unit/contract tests across 4 test suites passing green.
+- P0.4 Security & Code Review Fixes (MERGED via PR #2): resolved all findings from independent code review:
   * P1 External URL validation (`src/main/security/navigation-guard.ts`): implemented `safeOpenExternal` and `validateExternalUrl` permitting only HTTPS with valid hostnames and no embedded credentials, rejecting dangerous protocols (`file:`, `javascript:`, `data:`, `shell:`, OS handlers), and catching errors without unhandled promise rejections.
   * P1 Restrict BrowserWindow navigation (`src/main/index.ts` & `navigation-guard.ts`): restricted dev navigation strictly to `ELECTRON_RENDERER_URL` origin; pinned production navigation strictly to the exact application document HTML path; rejected arbitrary `file:` traversal and external origins.
   * P1 IPC Sender & Frame authorization (`src/main/ipc/register-handlers.ts`): enforced that every IPC handler validates `event.sender === mainWindow.webContents` and `event.senderFrame` is a top-level frame (`parent === null`, `top === senderFrame`) matching the trusted origin, rejecting unauthorized senders and nested iframes with `UNAUTHORIZED_SENDER` or `UNAUTHORIZED_FRAME`.
