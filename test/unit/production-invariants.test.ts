@@ -1,48 +1,410 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
+import {
+  SingleDisplayCapturer,
+  type DesktopCapturerLike
+} from '../../src/main/capture/single-display-capturer'
+import {
+  MediaStreamDisplayCaptureBackend,
+  type MediaStreamSessionLike,
+  type DisplayMediaRequest,
+  type DisplayStreams
+} from '../../src/main/capture/mediastream-backend'
+import { DisplayManager, type ScreenLike, type ElectronDisplayLike } from '../../src/main/displays/display-manager'
+import type { DesktopCapturerSourceLike } from '../../src/main/capture/source-resolver'
+import type { CapturedFrame, CaptureTarget, FrameCaptureBackend } from '../../src/shared/contracts/capture'
+import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
-describe('Deterministic Production Invariants Quality Gate', () => {
+class MockScreenApi implements ScreenLike {
+  public displays: ElectronDisplayLike[] = []
+  public listeners: Record<string, ((...args: unknown[]) => void)[]> = {
+    'display-added': [],
+    'display-removed': [],
+    'display-metrics-changed': []
+  }
+
+  getAllDisplays(): ElectronDisplayLike[] {
+    return this.displays
+  }
+
+  getPrimaryDisplay(): ElectronDisplayLike {
+    return this.displays[0]
+  }
+
+  on(
+    event: 'display-added' | 'display-removed' | 'display-metrics-changed',
+    fn: (...args: unknown[]) => void
+  ): this {
+    if (!this.listeners[event]) this.listeners[event] = []
+    this.listeners[event].push(fn)
+    return this
+  }
+
+  removeListener(
+    event: 'display-added' | 'display-removed' | 'display-metrics-changed',
+    fn: (...args: unknown[]) => void
+  ): this {
+    if (this.listeners[event]) {
+      this.listeners[event] = this.listeners[event].filter((l) => l !== fn)
+    }
+    return this
+  }
+
+  emit(event: string, ...args: unknown[]): void {
+    const list = this.listeners[event] || []
+    for (const fn of list) {
+      fn(...args)
+    }
+  }
+}
+
+describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
   const rootDir = path.resolve(__dirname, '../../')
   const readSrc = (relPath: string): string => {
     const fullPath = path.join(rootDir, relPath)
     return fs.readFileSync(fullPath, 'utf-8')
   }
 
-  describe('Capture Module Invariants', () => {
-    it('prohibits dummy placeholder byte arrays in capture source code', () => {
-      const capturerCode = readSrc('src/main/capture/single-display-capturer.ts')
-      const bufferCode = readSrc('src/main/capture/frame-buffer.ts')
-      const resolverCode = readSrc('src/main/capture/source-resolver.ts')
+  const createDisplay = (id: number, x: number): ElectronDisplayLike => ({
+    id,
+    label: `Display ${id}`,
+    bounds: { x, y: 0, width: 1920, height: 1080 },
+    workArea: { x, y: 0, width: 1920, height: 1040 },
+    scaleFactor: 1.0,
+    rotation: 0
+  })
 
-      // Assert no hardcoded dummy buffers like new Uint8Array(1024)
-      expect(capturerCode).not.toMatch(/Uint8Array\(\s*1024\s*\)/)
-      expect(bufferCode).not.toMatch(/Uint8Array\(\s*1024\s*\)/)
-      expect(resolverCode).not.toMatch(/Uint8Array\(\s*1024\s*\)/)
+  describe('Behavioral Capture Isolation & Security Gates', () => {
+    it('metadata enumeration never requests thumbnails (thumbnailSize is strictly 0x0)', async () => {
+      const screenApi = new MockScreenApi()
+      screenApi.displays = [createDisplay(101, 0), createDisplay(202, 1920)]
+      const displayManager = new DisplayManager(screenApi)
 
-      // Ensure capturer strictly checks for real non-empty thumbnail and genuine PNG conversion
-      expect(capturerCode).toMatch(/thumbnail\.isEmpty\(\)/)
-      expect(capturerCode).toMatch(/thumbnail\.toPNG\(\)/)
-      expect(capturerCode).toMatch(/format:\s*['"]png['"]/)
+      const sourcesCalls: { width?: number; height?: number }[] = []
+      const mockCapturer: DesktopCapturerLike = {
+        getSources: vi.fn().mockImplementation(async (opts) => {
+          sourcesCalls.push(opts.thumbnailSize ?? {})
+          return [
+            { id: 'screen:0:0', name: 'Display 101', display_id: '101' },
+            { id: 'screen:1:0', name: 'Display 202', display_id: '202' }
+          ]
+        })
+      }
+
+      const dummyBackend: FrameCaptureBackend = {
+        captureFrame: async (target: CaptureTarget) =>
+          createValidCapturedFrame({ displayId: target.displayId })
+      }
+
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer,
+        backend: dummyBackend
+      })
+
+      await capturer.start('101')
+
+      // Assert that desktopCapturer.getSources was invoked with strictly 0x0 dimensions
+      expect(sourcesCalls.length).toBeGreaterThanOrEqual(1)
+      expect(sourcesCalls[0].width).toBe(0)
+      expect(sourcesCalls[0].height).toBe(0)
+
+      await capturer.stop()
     })
 
-    it('mandates zero-size thumbnail option for desktopCapturer source enumeration', () => {
-      const capturerCode = readSrc('src/main/capture/single-display-capturer.ts')
+    it('selected-source capture initializes only the authorized source and denies unselected sources', async () => {
+      let registeredHandler:
+        | ((request: DisplayMediaRequest, callback: (streams: DisplayStreams) => void) => void)
+        | null = null
 
-      // Must explicitly request { width: 0, height: 0 } to avoid heavy CPU/memory overhead
-      expect(capturerCode).toMatch(/thumbnailSize:\s*\{\s*width:\s*0,\s*height:\s*0\s*\}/)
+      const mockSession: MediaStreamSessionLike = {
+        setDisplayMediaRequestHandler: vi.fn().mockImplementation((handler) => {
+          registeredHandler = handler
+        })
+      }
+
+      const backend = new MediaStreamDisplayCaptureBackend({
+        session: mockSession,
+        isAuthorizedFrame: (frame) => frame === 'authorized-frame',
+        frameExtractor: async (target) => createValidCapturedFrame({ displayId: target.displayId })
+      })
+
+      // Start capture for display 101 (screen:0:0)
+      await backend.start({
+        sourceId: 'screen:0:0',
+        displayId: '101',
+        sourceName: 'Screen 1'
+      })
+
+      expect(mockSession.setDisplayMediaRequestHandler).toHaveBeenCalledTimes(1)
+      expect(registeredHandler).not.toBeNull()
+
+      // 1. Authorized frame requesting display media
+      let grantedStreams: DisplayStreams | null = null
+      registeredHandler!(
+        {
+          frame: 'authorized-frame',
+          securityOrigin: 'http://localhost:5173',
+          videoRequested: true,
+          audioRequested: false,
+          userGesture: true
+        },
+        (streams) => {
+          grantedStreams = streams
+        }
+      )
+
+      // Must grant ONLY the authorized source (screen:0:0)
+      expect(grantedStreams).not.toBeNull()
+      expect(grantedStreams!.video?.id).toBe('screen:0:0')
+      expect(grantedStreams!.video?.name).toBe('Screen 1')
+      expect(grantedStreams!.audio).toBeUndefined()
+
+      // 2. Unauthorized frame requesting media -> must fail closed (callback({}))
+      let deniedStreams: DisplayStreams | null = null
+      registeredHandler!(
+        {
+          frame: 'unauthorized-attacker-frame',
+          securityOrigin: 'https://malicious.example.com',
+          videoRequested: true,
+          audioRequested: false,
+          userGesture: false
+        },
+        (streams) => {
+          deniedStreams = streams
+        }
+      )
+
+      expect(deniedStreams).not.toBeNull()
+      expect(deniedStreams!.video).toBeUndefined()
+
+      await backend.stop()
     })
 
-    it('enforces fail-closed display source resolution without silent fallbacks', () => {
-      const resolverCode = readSrc('src/main/capture/source-resolver.ts')
+    it('unselected source is never requested for frame capture', async () => {
+      const screenApi = new MockScreenApi()
+      screenApi.displays = [createDisplay(101, 0), createDisplay(202, 1920)]
+      const displayManager = new DisplayManager(screenApi)
 
-      // Must require exact display_id match
-      expect(resolverCode).toMatch(/exact_display_id_match/)
+      const requestedTargets: CaptureTarget[] = []
+      const fakeBackend: FrameCaptureBackend = {
+        start: async (target) => {
+          requestedTargets.push(target)
+        },
+        captureFrame: async (target) => {
+          requestedTargets.push(target)
+          return createValidCapturedFrame({ displayId: target.displayId })
+        }
+      }
 
-      // Must NOT contain loose fallbacks to index 0, first element, or fuzzy names
-      expect(resolverCode).not.toMatch(/sources\[0\]/)
-      expect(resolverCode).not.toMatch(/fallback_index/)
-      expect(resolverCode).not.toMatch(/fuzzy_name_match/)
+      const mockCapturer: DesktopCapturerLike = {
+        getSources: vi.fn().mockResolvedValue([
+          { id: 'screen:0:0', name: 'Display 101', display_id: '101' },
+          { id: 'screen:1:0', name: 'Display 202', display_id: '202' }
+        ])
+      }
+
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer,
+        backend: fakeBackend
+      })
+
+      // Start on display 101
+      await capturer.start('101')
+
+      // Assert that secondary display (202 / screen:1:0) was NEVER passed to backend
+      expect(requestedTargets.length).toBeGreaterThanOrEqual(1)
+      expect(requestedTargets.every((t) => t.displayId === '101' && t.sourceId === 'screen:0:0')).toBe(true)
+      expect(requestedTargets.some((t) => t.displayId === '202' || t.sourceId === 'screen:1:0')).toBe(false)
+
+      await capturer.stop()
+    })
+
+    it('unknown source ID fails closed without fallback', async () => {
+      const screenApi = new MockScreenApi()
+      screenApi.displays = [createDisplay(101, 0)]
+      const displayManager = new DisplayManager(screenApi)
+
+      const mockCapturer: DesktopCapturerLike = {
+        getSources: vi.fn().mockResolvedValue([
+          { id: 'screen:0:0', name: 'Display 101', display_id: '101' }
+        ])
+      }
+
+      const dummyBackend: FrameCaptureBackend = {
+        captureFrame: async (target) => createValidCapturedFrame({ displayId: target.displayId })
+      }
+
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer,
+        backend: dummyBackend
+      })
+
+      // Non-existent display 999
+      await expect(capturer.start('999')).rejects.toThrow(/not present in active display configuration/)
+      expect(capturer.getStatus()).toBe('error')
+      expect(capturer.isActive()).toBe(false)
+      expect(capturer.getLastError()).toContain('999')
+
+      // Stop recovers state to idle
+      await capturer.stop()
+      expect(capturer.getStatus()).toBe('idle')
+    })
+
+    it('missing or duplicate display mapping fails closed', async () => {
+      const screenApi = new MockScreenApi()
+      screenApi.displays = [createDisplay(101, 0)]
+      const displayManager = new DisplayManager(screenApi)
+
+      // Ambiguous: two sources matching same display_id
+      const mockCapturerDuplicate: DesktopCapturerLike = {
+        getSources: vi.fn().mockResolvedValue([
+          { id: 'screen:0:0', name: 'Display 101A', display_id: '101' },
+          { id: 'screen:0:1', name: 'Display 101B', display_id: '101' }
+        ])
+      }
+
+      const dummyBackend: FrameCaptureBackend = {
+        captureFrame: async (target) => createValidCapturedFrame({ displayId: target.displayId })
+      }
+
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturerDuplicate,
+        backend: dummyBackend
+      })
+
+      await expect(capturer.start('101')).rejects.toThrow(/Ambiguous capture source/)
+      expect(capturer.getStatus()).toBe('error')
+      expect(capturer.isActive()).toBe(false)
+
+      await capturer.stop()
+      expect(capturer.getStatus()).toBe('idle')
+    })
+
+    it('stop releases the actual backend capture resources and unregisters handler', async () => {
+      let registeredHandler: unknown = () => {}
+      const mockSession: MediaStreamSessionLike = {
+        setDisplayMediaRequestHandler: vi.fn().mockImplementation((handler) => {
+          registeredHandler = handler
+        })
+      }
+
+      const backend = new MediaStreamDisplayCaptureBackend({
+        session: mockSession,
+        frameExtractor: async (target) => createValidCapturedFrame({ displayId: target.displayId })
+      })
+
+      let trackStopped = false
+      backend.registerTrackStopCallback(() => {
+        trackStopped = true
+      })
+
+      await backend.start({
+        sourceId: 'screen:0:0',
+        displayId: '101'
+      })
+
+      expect(backend.isHandlerRegistered()).toBe(true)
+      expect(registeredHandler).not.toBeNull()
+
+      await backend.stop()
+
+      // Track stopped, handler unregistered, target cleared
+      expect(trackStopped).toBe(true)
+      expect(mockSession.setDisplayMediaRequestHandler).toHaveBeenLastCalledWith(null)
+      expect(backend.isHandlerRegistered()).toBe(false)
+      expect(backend.getActiveTarget()).toBeNull()
+    })
+
+    it('no capture resumes after Stop or hotplug', async () => {
+      const screenApi = new MockScreenApi()
+      screenApi.displays = [createDisplay(101, 0), createDisplay(202, 1920)]
+      const displayManager = new DisplayManager(screenApi)
+
+      let captureCount = 0
+      const fakeBackend: FrameCaptureBackend = {
+        captureFrame: async (target) => {
+          captureCount++
+          return createValidCapturedFrame({ displayId: target.displayId })
+        }
+      }
+
+      const mockCapturer: DesktopCapturerLike = {
+        getSources: vi.fn().mockResolvedValue([
+          { id: 'screen:0:0', name: 'Display 101', display_id: '101' },
+          { id: 'screen:1:0', name: 'Display 202', display_id: '202' }
+        ])
+      }
+
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer,
+        backend: fakeBackend,
+        sampleIntervalMs: 5
+      })
+
+      await capturer.start('202')
+      expect(captureCount).toBe(1)
+
+      // Stop session
+      await capturer.stop()
+      const countAfterStop = captureCount
+
+      // Wait a short time to verify interval does not run after stop
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(captureCount).toBe(countAfterStop)
+      expect(capturer.getStatus()).toBe('idle')
+    })
+
+    it('no captured frame is delivered after session invalidation', async () => {
+      const screenApi = new MockScreenApi()
+      screenApi.displays = [createDisplay(101, 0)]
+      const displayManager = new DisplayManager(screenApi)
+
+      let onCaptureStarted!: () => void
+      const captureStartedPromise = new Promise<void>((r) => {
+        onCaptureStarted = r
+      })
+
+      let resolveCapture!: (frame: CapturedFrame) => void
+      const fakeBackend: FrameCaptureBackend = {
+        captureFrame: async () => {
+          onCaptureStarted()
+          return new Promise<CapturedFrame>((resolve) => {
+            resolveCapture = resolve
+          })
+        }
+      }
+
+      const mockCapturer: DesktopCapturerLike = {
+        getSources: vi.fn().mockResolvedValue([
+          { id: 'screen:0:0', name: 'Display 101', display_id: '101' }
+        ])
+      }
+
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer,
+        backend: fakeBackend
+      })
+
+      const startPromise = capturer.start('101').catch((err) => err)
+
+      // Await until captureFrame has actually been invoked
+      await captureStartedPromise
+
+      // Invalidate session by calling stop while captureFrame is pending
+      await capturer.stop()
+
+      // Late frame resolves from backend
+      resolveCapture(createValidCapturedFrame({ displayId: '101' }))
+
+      // Start promise rejected cleanly with cancellation error
+      const err = await startPromise
+      expect(err).toBeInstanceOf(Error)
+      expect((err as Error).message).toContain('cancelled or superseded')
+
+      // Frame buffer remains clean with 0 stale frames
+      expect(capturer.getLatestFrame()).toBeNull()
+      expect(capturer.getFrameHistory().length).toBe(0)
     })
   })
 
