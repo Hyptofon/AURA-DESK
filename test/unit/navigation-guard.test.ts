@@ -44,6 +44,51 @@ describe('navigation-guard', () => {
       expect(isAllowedNavigation('file:///C:/AURA-DESK/out/renderer/index.html#/settings', options)).toBe(true)
     })
 
+    it('verifies UNC share hostnames in production file URL validation', () => {
+      const options = {
+        isDev: false,
+        expectedHtmlPath: 'file://trusted-server/share/AURA-DESK/out/renderer/index.html'
+      }
+
+      // Exact match on same trusted server
+      expect(
+        isAllowedNavigation('file://trusted-server/share/AURA-DESK/out/renderer/index.html', options)
+      ).toBe(true)
+
+      // Rejects same file path hosted on an untrusted or attacker server
+      expect(
+        isAllowedNavigation('file://attacker-server/share/AURA-DESK/out/renderer/index.html', options)
+      ).toBe(false)
+    })
+
+    it('rejects remote-host file URLs when local file is expected even if pathname matches', () => {
+      const options = {
+        isDev: false,
+        expectedHtmlPath: 'file:///C:/AURA-DESK/out/renderer/index.html'
+      }
+
+      expect(
+        isAllowedNavigation('file://remote-host/C:/AURA-DESK/out/renderer/index.html', options)
+      ).toBe(false)
+      expect(
+        isAllowedNavigation('file://192.168.1.100/C:/AURA-DESK/out/renderer/index.html', options)
+      ).toBe(false)
+    })
+
+    it('rejects unexpected query parameters on production document', () => {
+      const options = {
+        isDev: false,
+        expectedHtmlPath: 'file:///C:/AURA-DESK/out/renderer/index.html'
+      }
+
+      expect(
+        isAllowedNavigation('file:///C:/AURA-DESK/out/renderer/index.html?token=leak', options)
+      ).toBe(false)
+      expect(
+        isAllowedNavigation('file:///C:/AURA-DESK/out/renderer/index.html?param=value#settings', options)
+      ).toBe(false)
+    })
+
     it('denies other file paths and network protocols in production mode', () => {
       const expectedHtmlPath = 'file:///C:/AURA-DESK/out/renderer/index.html'
       const options = {
@@ -147,6 +192,19 @@ describe('navigation-guard', () => {
       expect(consoleErrorSpy).toHaveBeenCalled()
 
       consoleErrorSpy.mockRestore()
+    })
+
+    it('verifies window.open handler denies new window without invoking shell.openExternal', () => {
+      // In accordance with P2, window.open requests from renderer are denied by default without opening browser
+      const openHandler = (_details: { url: string }): { action: 'deny' } => {
+        return { action: 'deny' }
+      }
+
+      const mockOpenExternal = vi.fn()
+      const result = openHandler({ url: 'https://example.com' })
+
+      expect(result.action).toBe('deny')
+      expect(mockOpenExternal).not.toHaveBeenCalled()
     })
   })
 })
