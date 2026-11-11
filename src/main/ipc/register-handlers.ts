@@ -315,7 +315,7 @@ export function registerIpcHandlers(
       return {
         ok: true,
         data: {
-          status: capturer.getStatus()
+          status: capturer.getStatus() !== 'idle' ? capturer.getStatus() : currentSessionStatus
         }
       }
     }
@@ -445,7 +445,6 @@ export function registerIpcHandlers(
       const responsePayload = {
         success: true,
         status: capturer.getStatus()
-      }
       }
       return {
         ok: true,
