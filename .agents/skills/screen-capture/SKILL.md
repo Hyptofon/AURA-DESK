@@ -27,6 +27,17 @@ ONLY `both` or `single(displayId)`. The chosen mode controls **actual capture**,
 6. **Mocked hotplug vs hardware reality**: Unit and mock tests prove protocol correctness and boundary behavior, but do not equal real Windows hardware testing. Claim hardware verification only with physical unplug/replug evidence.
 7. **Display ID stability caveat**: Electron display IDs are normalized strings and must never be treated as immutable hardware serial numbers across reboot, dock, or driver restarts.
 
+## Single Display Capture Isolation & Privacy Invariants
+1. **Real image data required in production**: Production capture must yield genuine decoded/encoded image data with factual dimensions and format; synthetic or dummy zero arrays (`new Uint8Array(1024)`) labeled as image formats are strictly forbidden in production.
+2. **Fake frames belong only in tests**: Controlled fake frames with verifiable PNG binary signatures, valid dimensions, and known byte lengths are restricted exclusively to test adapters and fixtures.
+3. **Zero-thumbnail metadata enumeration**: When enumerating desktopCapturer sources for display mapping, always set `thumbnailSize: { width: 0, height: 0 }` and `fetchWindowIcons: false`. Requesting non-zero thumbnail dimensions during enumeration forces Electron to capture screenshots of all connected monitors simultaneously.
+4. **No unsafe source fallbacks**: Mapping an enumerated display to a desktopCapturer source must require an exact match on `DesktopCapturerSource.display_id`. Unsafe heuristics (matching by array index, `screen:<index>:0` pattern, or fuzzy screen names) are prohibited for privacy-sensitive capture and must fail closed.
+5. **Async cancellation and generation tokens**: All asynchronous capture workflows (`getSources`, `captureFrame`, `start`, `stop`) must bind to an incrementing session generation token. After every `await`, re-validate that the session generation, state, and active display have not changed before modifying state, scheduling timers, or pushing frames.
+6. **Idempotent stop and stale frame rejection**: `stop()` must immediately invalidate in-flight operations, cancel interval timers, clear buffer frames, and unbind displays. Late-arriving frames from a cancelled generation must be discarded.
+7. **Authoritative session state synchronization**: The capture supervisor or capturer port is the sole source of truth for session lifecycle status (`idle`, `starting`, `active`, `stopping`, `error`). Unexpected terminations (e.g. display loss or source disappearance) must transition state to `error` and notify listeners via `SESSION_STATUS_CHANGED`.
+8. **Hard frame buffer bounds**: Memory limits must be enforced unconditionally. Frame buffers must validate payload integrity (`byteLength === data.byteLength`), reject oversized frames (`byteLength > maxBytes`) prior to insertion, and require explicit display binding.
+9. **Physical hardware isolation boundary**: Mocked unit tests prove protocol correctness and handler safety, but cannot verify physical OS-level multi-monitor isolation. Real physical isolation on Windows requires dedicated manual hardware verification with two connected monitors.
+
 ## Proof
 - Fake-port unit for `T-SCR-01..04`; real Windows two-monitor testing for `A-02..04` and overlay recursion.
 - Record display resolutions/scale and actual observed results; no simulated pass.
