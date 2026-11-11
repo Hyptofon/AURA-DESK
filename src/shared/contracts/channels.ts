@@ -7,7 +7,8 @@ export const IPC_CHANNELS = {
   APP_GET_INFO: 'aura:app-get-info',
   SESSION_GET_STATE: 'aura:session-get-state',
   SESSION_SET_SELECTION: 'aura:session-set-selection',
-  DISPLAYS_GET_ALL: 'aura:displays-get-all'
+  DISPLAYS_GET_ALL: 'aura:displays-get-all',
+  DISPLAYS_CHANGED: 'aura:displays-changed'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
