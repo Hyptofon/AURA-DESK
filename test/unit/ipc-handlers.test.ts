@@ -257,16 +257,38 @@ describe('Main Process IPC Handlers', () => {
       stop: ReturnType<typeof vi.fn>
       isActive: ReturnType<typeof vi.fn>
       getActiveDisplayId: ReturnType<typeof vi.fn>
+      getStatus: ReturnType<typeof vi.fn>
+      getLastError: ReturnType<typeof vi.fn>
+      onStatusChange: ReturnType<typeof vi.fn>
     }
+    let currentMockStatus: string
+    let statusListener: ((status: string, error?: string) => void) | null = null
 
     beforeEach(() => {
+      currentMockStatus = 'idle'
+      statusListener = null
+
       mockCapturer = {
         start: vi.fn().mockImplementation(async (id: string) => {
-          if (id === 'error-id') throw new Error('Display not found')
+          if (id === 'error-id') {
+            currentMockStatus = 'error'
+            throw new Error('Display not found')
+          }
+          currentMockStatus = 'active'
         }),
-        stop: vi.fn().mockResolvedValue(undefined),
-        isActive: vi.fn().mockReturnValue(false),
-        getActiveDisplayId: vi.fn().mockReturnValue(null)
+        stop: vi.fn().mockImplementation(async () => {
+          currentMockStatus = 'idle'
+        }),
+        isActive: vi.fn().mockImplementation(() => currentMockStatus === 'active'),
+        getActiveDisplayId: vi.fn().mockReturnValue(null),
+        getStatus: vi.fn().mockImplementation(() => currentMockStatus),
+        getLastError: vi.fn().mockReturnValue(null),
+        onStatusChange: vi.fn().mockImplementation((fn) => {
+          statusListener = fn
+          return () => {
+            statusListener = null
+          }
+        })
       }
 
       registerIpcHandlers(
@@ -352,6 +374,83 @@ describe('Main Process IPC Handlers', () => {
       if (!res.ok) {
         expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
       }
+    })
+
+    it('SESSION_GET_STATE queries capturer status as authoritative single source of truth', async () => {
+      const getStateHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const startHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+
+      // Initially idle
+      let stateRes = (await getStateHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stateRes.ok).toBe(true)
+      if (stateRes.ok) {
+        expect(stateRes.data.status).toBe('idle')
+      }
+
+      // Start session -> becomes active
+      await startHandler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })
+
+      stateRes = (await getStateHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stateRes.ok).toBe(true)
+      if (stateRes.ok) {
+        expect(stateRes.data.status).toBe('active')
+      }
+    })
+
+    it('synchronizes status to error when capturer stops unexpectedly and recovers on stop', async () => {
+      const getStateHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const startHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const stopHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+
+      // Start session
+      await startHandler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })
+
+      // Simulate unexpected stop (e.g. display loss or source disappeared)
+      currentMockStatus = 'error'
+
+      const stateRes = (await getStateHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stateRes.ok).toBe(true)
+      if (stateRes.ok) {
+        expect(stateRes.data.status).toBe('error')
+      }
+
+      // Recovery via explicit stop call
+      const stopRes = (await stopHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stopRes.ok).toBe(true)
+      if (stopRes.ok) {
+        expect(stopRes.data.status).toBe('idle')
+      }
+    })
+
+    it('forwards SESSION_STATUS_CHANGED event to trusted webContents on unexpected termination', () => {
+      const mockWebContentsWithSend = {
+        id: 1,
+        mainFrame: defaultMainFrame,
+        isDestroyed: vi.fn().mockReturnValue(false),
+        send: vi.fn()
+      }
+
+      registerIpcHandlers(
+        mockIpc,
+        {
+          trustedWebContents: mockWebContentsWithSend,
+          trustedOrigin: 'http://localhost:5173'
+        },
+        defaultDisplayManager,
+        mockCapturer as never
+      )
+
+      expect(statusListener).not.toBeNull()
+      statusListener!('error', 'SELECTED_DISPLAY_LOST')
+
+      expect(mockWebContentsWithSend.send).toHaveBeenCalledWith(
+        IPC_CHANNELS.SESSION_STATUS_CHANGED,
+        { status: 'error', error: 'SELECTED_DISPLAY_LOST' }
+      )
     })
   })
 
