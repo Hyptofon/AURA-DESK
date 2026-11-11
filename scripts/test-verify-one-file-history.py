@@ -4,9 +4,12 @@
 Tests:
 1. Valid single-file commits (PASS)
 2. Invalid multi-file commit (FAIL)
-3. Valid two-parent PR merge commit (PASS)
+3. Valid two-parent PR merge commit with standard GitHub subject (PASS)
 4. Invalid octopus merge commit (FAIL)
-5. Invalid merge subject format (FAIL)
+5. Invalid merge subject with arbitrary changes prefix (FAIL)
+6. Invalid merge subject with non-conforming format (FAIL)
+7. Non-existent git revision handling returns (False, issues, summary) without ValueError (FAIL)
+8. CLI exit code and output on non-existent revision (FAIL with non-zero code)
 """
 import os
 import shutil
@@ -91,13 +94,13 @@ class TestVerifyOneFileHistory(unittest.TestCase):
         self._git(["add", "main_update.txt"])
         self._git(["commit", "-m", "chore(test): update main"])
 
-        # Merge feature into main with standard PR merge subject
-        self._git(["merge", "--no-ff", "feature", "-m", "Merge pull request #1 from feature"])
+        # Merge feature into main with standard GitHub PR merge subject
+        self._git(["merge", "--no-ff", "feature", "-m", "Merge pull request #12 from owner/feature"])
 
         passed, issues, summary = validator.audit_history(n=10, git_dir=self.test_dir)
         self.assertTrue(passed, f"Expected PASS for valid PR merge, got issues: {issues}")
         self.assertEqual(len(issues), 0)
-        self.assertIn("1 approved two-parent merge commits", summary)
+        self.assertIn("1 structurally valid two-parent merge commits", summary)
 
     def test_invalid_octopus_merge_commit(self):
         self._write_file("base.txt", "base")
@@ -127,7 +130,7 @@ class TestVerifyOneFileHistory(unittest.TestCase):
         self.assertFalse(passed, "Expected FAIL for octopus merge")
         self.assertTrue(any("octopus merge" in i for i in issues))
 
-    def test_invalid_merge_subject(self):
+    def test_invalid_merge_subject_arbitrary_changes(self):
         self._write_file("base.txt", "base")
         self._git(["add", "base.txt"])
         self._git(["commit", "-m", "chore(test): base"])
@@ -138,12 +141,61 @@ class TestVerifyOneFileHistory(unittest.TestCase):
         self._git(["commit", "-m", "feat(test): f"])
 
         self._git(["checkout", "main"])
-        # Merge with non-conforming subject
+        self._write_file("main_update.txt", "main update")
+        self._git(["add", "main_update.txt"])
+        self._git(["commit", "-m", "chore(test): main update"])
+
+        # Merge with overly broad 'Merge arbitrary changes' subject
+        self._git(["merge", "--no-ff", "feat", "-m", "Merge arbitrary changes"])
+
+        passed, issues, summary = validator.audit_history(n=10, git_dir=self.test_dir)
+        self.assertFalse(passed, "Expected FAIL for 'Merge arbitrary changes' subject")
+        self.assertTrue(any("merge commit subject does not follow merge convention" in i for i in issues))
+
+    def test_invalid_merge_subject_random(self):
+        self._write_file("base.txt", "base")
+        self._git(["add", "base.txt"])
+        self._git(["commit", "-m", "chore(test): base"])
+
+        self._git(["checkout", "-b", "feat"])
+        self._write_file("f.txt", "f")
+        self._git(["add", "f.txt"])
+        self._git(["commit", "-m", "feat(test): f"])
+
+        self._git(["checkout", "main"])
+        self._write_file("main_update.txt", "main update")
+        self._git(["add", "main_update.txt"])
+        self._git(["commit", "-m", "chore(test): main update"])
+
+        # Merge with completely non-conforming subject
         self._git(["merge", "--no-ff", "feat", "-m", "random non-merge subject"])
 
         passed, issues, summary = validator.audit_history(n=10, git_dir=self.test_dir)
-        self.assertFalse(passed, "Expected FAIL for non-conforming merge subject")
+        self.assertFalse(passed, "Expected FAIL for random non-conforming merge subject")
         self.assertTrue(any("merge commit subject does not follow merge convention" in i for i in issues))
+
+    def test_nonexistent_git_revision_handling(self):
+        # Must return uniform 3-tuple (passed, issues, summary) without raising ValueError
+        passed, issues, summary = validator.audit_history(n=10, rev="nonexistent_rev_12345", git_dir=self.test_dir)
+        self.assertFalse(passed, "Expected False for non-existent git revision")
+        self.assertIsInstance(issues, list)
+        self.assertTrue(len(issues) > 0)
+        self.assertTrue(any("git rev-list failed" in i for i in issues))
+        self.assertIn("Failed to audit revision 'nonexistent_rev_12345'", summary)
+
+    def test_cli_nonexistent_git_revision(self):
+        cli_script = str(root / "scripts" / "verify-one-file-history.py")
+        proc = subprocess.run(
+            [sys.executable, cli_script, "10", "nonexistent_rev_99999"],
+            cwd=self.test_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertNotEqual(proc.returncode, 0, "CLI must exit with non-zero code on failed git revision")
+        self.assertIn("FAIL: git rev-list failed", proc.stdout)
+        self.assertNotIn("Traceback", proc.stdout)
+        self.assertNotIn("ValueError", proc.stdout)
 
 
 if __name__ == "__main__":
