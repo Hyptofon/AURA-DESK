@@ -17,6 +17,6 @@ if (process.contextIsolated) {
     console.error('Failed to expose api to main world', error)
   }
 } else {
-  // @ts-expect-error fallback when context isolation is disabled
-  window.api = api
+  // Fallback if contextIsolation is ever disabled
+  ;(globalThis as { api?: AuraApi }).api = api
 }
