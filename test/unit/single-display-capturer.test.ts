@@ -66,8 +66,14 @@ class MockScreenApi implements ScreenLike {
  */
 class FakeFrameCaptureBackend implements FrameCaptureBackend {
   public captureCalls: CaptureTarget[] = []
+  public startCalls: CaptureTarget[] = []
   public customHandler?: (target: CaptureTarget) => Promise<CapturedFrame>
   public stopCalls = 0
+  public stopDelayMs = 0
+
+  async start(target: CaptureTarget): Promise<void> {
+    this.startCalls.push(target)
+  }
 
   async captureFrame(target: CaptureTarget): Promise<CapturedFrame> {
     this.captureCalls.push(target)
@@ -82,6 +88,9 @@ class FakeFrameCaptureBackend implements FrameCaptureBackend {
   }
 
   async stop(): Promise<void> {
+    if (this.stopDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.stopDelayMs))
+    }
     this.stopCalls++
   }
 }
@@ -219,7 +228,9 @@ describe('SingleDisplayCapturer', () => {
 
     // Now getSources() completes
     resolveSources(capturerSources)
-    await startPromise
+    await expect(startPromise).rejects.toThrow(
+      /Capture start was cancelled or superseded before becoming active/
+    )
 
     // Verify session remains idle, timer was not created, buffer is empty
     expect(capturer.getStatus()).toBe('idle')
@@ -249,7 +260,9 @@ describe('SingleDisplayCapturer', () => {
 
     // Frame resolves after Stop
     resolveFrame(createValidCapturedFrame({ displayId: '202' }))
-    await startPromise
+    await expect(startPromise).rejects.toThrow(
+      /Capture start was cancelled or superseded before becoming active/
+    )
 
     // Verify frame was discarded and buffer remains completely empty
     expect(capturer.getFrameHistory().length).toBe(0)
@@ -366,5 +379,96 @@ describe('SingleDisplayCapturer', () => {
 
     expect(capturer.getStatus()).toBe('idle')
     expect(capturer.isActive()).toBe(false)
+  })
+
+  it('cancelled start rejects with cancellation error and does not enter active state', async () => {
+    let resolveGetSources!: (sources: DesktopCapturerSourceLike[]) => void
+    mockCapturer.getSources = vi.fn().mockReturnValue(
+      new Promise<DesktopCapturerSourceLike[]>((resolve) => {
+        resolveGetSources = resolve
+      })
+    )
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    const startPromise = capturer.start('202')
+    expect(capturer.getStatus()).toBe('starting')
+
+    // Stop is called while getSources() is still in-flight
+    await capturer.stop()
+    expect(capturer.getStatus()).toBe('idle')
+
+    // Now let getSources finish
+    resolveGetSources(capturerSources)
+
+    // The start promise must reject with cancellation error
+    await expect(startPromise).rejects.toThrow(
+      /Capture start was cancelled or superseded before becoming active/
+    )
+    expect(capturer.getStatus()).toBe('idle')
+    expect(capturer.isActive()).toBe(false)
+  })
+
+  it('stop() properly awaits asynchronous backend stop and transitions state cleanly', async () => {
+    vi.useRealTimers()
+    fakeBackend.stopDelayMs = 20
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    await capturer.start('202')
+    expect(capturer.getStatus()).toBe('active')
+
+    await capturer.stop()
+
+    expect(fakeBackend.stopCalls).toBe(1)
+    expect(capturer.getStatus()).toBe('idle')
+    expect(capturer.isActive()).toBe(false)
+  })
+
+  it('prevents overlapping capture operations via in-flight capture lock', async () => {
+    vi.useRealTimers()
+    let captureExecutionCount = 0
+
+    fakeBackend.customHandler = async (target) => {
+      captureExecutionCount++
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      return createValidCapturedFrame({
+        displayId: target.displayId,
+        width: target.bounds?.width ?? 1920,
+        height: target.bounds?.height ?? 1080
+      })
+    }
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend,
+      sampleIntervalMs: 10
+    })
+
+    await capturer.start('202')
+    expect(captureExecutionCount).toBe(1)
+    await capturer.stop()
+  })
+
+  it('initializes backend start hook with verified target metadata', async () => {
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend
+    })
+
+    await capturer.start('202')
+
+    expect(fakeBackend.startCalls.length).toBe(1)
+    expect(fakeBackend.startCalls[0].sourceId).toBe('screen:1:0')
+    expect(fakeBackend.startCalls[0].displayId).toBe('202')
+    expect(fakeBackend.startCalls[0].sourceName).toBe('Display 202')
+
+    await capturer.stop()
   })
 })
