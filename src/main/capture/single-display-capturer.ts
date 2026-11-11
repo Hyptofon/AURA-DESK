@@ -296,7 +296,34 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
 
   private handleAbruptTermination(code: string, message?: string): void {
     const errorText = message ? `${code}: ${message}` : code
-    void this.stopAsync('error', errorText)
+    this.sessionGeneration++
+
+    if (this.sampleTimer) {
+      clearInterval(this.sampleTimer)
+      this.sampleTimer = null
+    }
+
+    if (this.unsubscribeDisplayManager) {
+      this.unsubscribeDisplayManager()
+      this.unsubscribeDisplayManager = null
+    }
+
+    // Flush all frame memory immediately
+    this.buffer.clear()
+
+    this.activeDisplayId = null
+    this.resolvedSourceId = null
+    this.activeDisplayBounds = undefined
+
+    this.setStatus('error', errorText)
+
+    if (this.backend.stop) {
+      try {
+        void this.backend.stop()
+      } catch (err) {
+        console.error('Error stopping capture backend:', err)
+      }
+    }
   }
 
   private async stopAsync(finalStatus: SessionStatus = 'idle', error?: string): Promise<void> {
