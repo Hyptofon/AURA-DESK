@@ -1,6 +1,6 @@
 # AURA DESK — mandatory project instructions for Antigravity
 
-**This file is always active.** Repository is a PERSONAL Windows AI desktop project, **currently blueprint-only**; never fabricate implementation, test results, live model capability, screenshots, or operating-system behavior.
+**This file is always active.** Repository is a PERSONAL Windows AI desktop project in active development. Current state: minimal working Electron shell, React 18 UI with Quiet Instrument design tokens, TypeScript strict, Vitest/RTL unit tests, ESLint, Git hooks, and PR workflow governance (Milestone M0 in progress). Screen/audio capture, question detection, and OpenRouter modules are not yet implemented; never fabricate implementation, test results, live model capability, screenshots, or operating-system behavior.
 
 ## Read first, then act
 
@@ -9,6 +9,7 @@
 3. Announce a concise plan with task ID, files, dependencies, tests, and risks. Do not silently broaden scope.
 4. Select appropriate `.agents/skills/<name>/SKILL.md`; use as a workflow, not as a replacement for this file.
 5. Follow strict **1 FILE = 1 COMMIT** policy from `.agents/rules/git-discipline.md`. No exceptions for scaffolding, code/tests, formatting, documentation, generated files. Do not bypass hooks.
+6. Follow mandatory branch, Pull Request, and review workflow in `docs/DEVELOPMENT_WORKFLOW.md`. All tasks must be done in dedicated feature branches, pushed for Pull Request creation, and stopped for independent review. Automatic merge to `main` and direct push to `main` are strictly forbidden.
 
 ## Non-negotiable product invariants
 
@@ -31,9 +32,11 @@
 ## Delivery/reporting contract
 
 In every implementation result say:
-- Task ID, changed FILE paths and SHA of each **one-file commit**;
+- Task ID, branch name, Pull Request URL (or creation command/status);
+- changed FILE paths and SHA of each **one-file commit**;
 - exact tests executed and result, or explicitly `NOT RUN` / `NOT AVAILABLE`;
-- real evidence vs assumptions, blockers, next item;
+- real evidence vs assumptions, blockers, review state (`IMPLEMENTED`, `IN REVIEW`, `MERGED`);
 - update `docs/PROGRESS.md` and `docs/ROADMAP.md` in **their own individual commits** after verification (never falsely check Done).
+- confirmation that NO automatic merge was performed.
 
 If a requested step cannot be completed without real Windows device/API access, produce a reproducible minimal experiment and give exact commands for user execution; record status `BLOCKED/NEEDS MANUAL TEST`, not passed.
