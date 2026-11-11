@@ -27,7 +27,7 @@ describe('Display Source Resolver', () => {
     }
   ]
 
-  it('resolves source via exact display_id match', () => {
+  it('resolves source via valid exact display_id mapping', () => {
     const sources: DesktopCapturerSourceLike[] = [
       { id: 'screen:0:0', name: 'Screen 1', display_id: '101' },
       { id: 'screen:1:0', name: 'Screen 2', display_id: '202' }
@@ -36,65 +36,82 @@ describe('Display Source Resolver', () => {
     const result = resolveSourceForDisplay('202', mockDisplays, sources)
 
     expect(result.sourceId).toBe('screen:1:0')
+    expect(result.sourceName).toBe('Screen 2')
     expect(result.displayId).toBe('202')
-    expect(result.strategy).toBe('display_id_match')
+    expect(result.strategy).toBe('exact_display_id_match')
   })
 
-  it('fails closed when multiple sources have identical display_id (ambiguous)', () => {
+  it('correctly maps target display even when sources are reordered', () => {
+    // Reverse order: source for 202 is first, source for 101 is second
+    const sources: DesktopCapturerSourceLike[] = [
+      { id: 'screen:1:0', name: 'Screen 2', display_id: '202' },
+      { id: 'screen:0:0', name: 'Screen 1', display_id: '101' }
+    ]
+
+    const result = resolveSourceForDisplay('101', mockDisplays, sources)
+    expect(result.sourceId).toBe('screen:0:0')
+    expect(result.displayId).toBe('101')
+    expect(result.strategy).toBe('exact_display_id_match')
+  })
+
+  it('fails closed when sources have missing display_id and rejects index/name fallback', () => {
+    // Sources have similar names and matching screen:indices, but missing display_id
+    const sources: DesktopCapturerSourceLike[] = [
+      { id: 'screen:0:0', name: 'Dell Primary' },
+      { id: 'screen:1:0', name: 'Samsung Secondary' }
+    ]
+
+    expect(() => resolveSourceForDisplay('101', mockDisplays, sources)).toThrow(
+      /no desktopCapturer source with matching display_id found/
+    )
+  })
+
+  it('fails closed when source has empty string or whitespace display_id', () => {
+    const sources: DesktopCapturerSourceLike[] = [
+      { id: 'screen:0:0', name: 'Screen 1', display_id: '' },
+      { id: 'screen:1:0', name: 'Screen 2', display_id: '   ' }
+    ]
+
+    expect(() => resolveSourceForDisplay('101', mockDisplays, sources)).toThrow(
+      /no desktopCapturer source with matching display_id found/
+    )
+  })
+
+  it('distinguishes different display IDs with identical or similar names', () => {
+    // Both screens called "Generic PnP Monitor"
+    const sources: DesktopCapturerSourceLike[] = [
+      { id: 'screen:0:0', name: 'Generic PnP Monitor', display_id: '101' },
+      { id: 'screen:1:0', name: 'Generic PnP Monitor', display_id: '202' }
+    ]
+
+    const result101 = resolveSourceForDisplay('101', mockDisplays, sources)
+    expect(result101.sourceId).toBe('screen:0:0')
+    expect(result101.displayId).toBe('101')
+
+    const result202 = resolveSourceForDisplay('202', mockDisplays, sources)
+    expect(result202.sourceId).toBe('screen:1:0')
+    expect(result202.displayId).toBe('202')
+  })
+
+  it('fails closed when multiple sources have duplicate display_id (ambiguous)', () => {
     const sources: DesktopCapturerSourceLike[] = [
       { id: 'screen:0:0', name: 'Screen 1A', display_id: '101' },
       { id: 'screen:1:0', name: 'Screen 1B', display_id: '101' }
     ]
 
     expect(() => resolveSourceForDisplay('101', mockDisplays, sources)).toThrow(
-      /Ambiguous capture source/
+      /Ambiguous capture source: multiple sources matched display_id "101"/
     )
   })
 
-  it('resolves source via ID pattern match when display_id is not set on source', () => {
-    const sources: DesktopCapturerSourceLike[] = [
-      { id: 'screen:101:0', name: 'Screen A' },
-      { id: 'screen:202:0', name: 'Screen B' }
-    ]
-
-    const result = resolveSourceForDisplay('101', mockDisplays, sources)
-
-    expect(result.sourceId).toBe('screen:101:0')
-    expect(result.strategy).toBe('id_pattern_match')
-  })
-
-  it('resolves source via screen index match as fallback', () => {
-    // 101 is at index 0, 202 is at index 1
-    const sources: DesktopCapturerSourceLike[] = [
-      { id: 'screen:0:0', name: 'Main Display' },
-      { id: 'screen:1:0', name: 'Second Display' }
-    ]
-
-    const result = resolveSourceForDisplay('202', mockDisplays, sources)
-
-    expect(result.sourceId).toBe('screen:1:0')
-    expect(result.strategy).toBe('screen_index_match')
-  })
-
-  it('resolves source via label/name match when IDs do not align', () => {
-    const sources: DesktopCapturerSourceLike[] = [
-      { id: 'src-alpha', name: 'dell primary' },
-      { id: 'src-beta', name: 'samsung secondary' }
-    ]
-
-    const result = resolveSourceForDisplay('202', mockDisplays, sources)
-
-    expect(result.sourceId).toBe('src-beta')
-    expect(result.strategy).toBe('label_match')
-  })
-
-  it('throws error when target displayId is not in enumerated displays', () => {
+  it('throws error when target display is disconnected/not in enumerated displays', () => {
     const sources: DesktopCapturerSourceLike[] = [
       { id: 'screen:0:0', name: 'Screen 1', display_id: '101' }
     ]
 
+    // Display '999' is not connected
     expect(() => resolveSourceForDisplay('999', mockDisplays, sources)).toThrow(
-      /target display "999" not found/
+      /target display "999" not found in enumerated displays/
     )
   })
 
@@ -104,13 +121,13 @@ describe('Display Source Resolver', () => {
     )
   })
 
-  it('fails closed when no strategy can unambiguously resolve the display', () => {
+  it('rejects invalid or empty targetDisplayId arguments', () => {
     const sources: DesktopCapturerSourceLike[] = [
-      { id: 'window:999:0', name: 'Not A Screen' }
+      { id: 'screen:0:0', name: 'Screen 1', display_id: '101' }
     ]
 
-    expect(() => resolveSourceForDisplay('101', mockDisplays, sources)).toThrow(
-      /no matching desktopCapturer source found/
+    expect(() => resolveSourceForDisplay('', mockDisplays, sources)).toThrow(
+      /targetDisplayId must be a non-empty string/
     )
   })
 })
