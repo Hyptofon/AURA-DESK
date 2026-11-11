@@ -8,6 +8,9 @@ export {
   type CaptureSelection,
   type SessionStatus,
   type AppInfo,
+  type DisplayBounds,
+  type DisplayInfo,
+  type DisplayConfiguration,
   type IpcSuccess,
   type IpcError,
   type IpcResponse
@@ -55,5 +58,45 @@ export const AppInfoSchema = z
     version: z.string().regex(/^\d+\.\d+\.\d+$/),
     platform: z.string().min(1),
     isPackaged: z.boolean()
+  })
+  .strict()
+
+/**
+ * Display bounds schema.
+ */
+export const DisplayBoundsSchema = z
+  .object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number().nonnegative(),
+    height: z.number().nonnegative()
+  })
+  .strict()
+
+/**
+ * Normalized display information schema.
+ */
+export const DisplayInfoSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    label: z.string().trim().min(1),
+    isPrimary: z.boolean(),
+    bounds: DisplayBoundsSchema,
+    workArea: DisplayBoundsSchema,
+    scaleFactor: z.number().positive(),
+    rotation: z.number()
+  })
+  .strict()
+
+/**
+ * Display configuration schema.
+ */
+export const DisplayConfigurationSchema = z
+  .object({
+    displays: z.array(DisplayInfoSchema),
+    primaryId: z.string().trim().min(1),
+    count: z.number().int().nonnegative(),
+    isMultiDisplay: z.boolean(),
+    selectedDisplayLost: z.boolean().optional()
   })
   .strict()

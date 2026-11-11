@@ -6,7 +6,9 @@
 export const IPC_CHANNELS = {
   APP_GET_INFO: 'aura:app-get-info',
   SESSION_GET_STATE: 'aura:session-get-state',
-  SESSION_SET_SELECTION: 'aura:session-set-selection'
+  SESSION_SET_SELECTION: 'aura:session-set-selection',
+  DISPLAYS_GET_ALL: 'aura:displays-get-all',
+  DISPLAYS_CHANGED: 'aura:displays-changed'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
@@ -43,6 +45,41 @@ export interface AppInfo {
   version: string
   platform: string
   isPackaged: boolean
+}
+
+/**
+ * Display coordinates and dimensions contract.
+ */
+export interface DisplayBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * Normalized display metadata.
+ * Note: Electron display IDs are normalized to strings; they may change on system reconfiguration.
+ */
+export interface DisplayInfo {
+  id: string
+  label: string
+  isPrimary: boolean
+  bounds: DisplayBounds
+  workArea: DisplayBounds
+  scaleFactor: number
+  rotation: number
+}
+
+/**
+ * Overall display configuration contract.
+ */
+export interface DisplayConfiguration {
+  displays: DisplayInfo[]
+  primaryId: string
+  count: number
+  isMultiDisplay: boolean
+  selectedDisplayLost?: boolean
 }
 
 /**

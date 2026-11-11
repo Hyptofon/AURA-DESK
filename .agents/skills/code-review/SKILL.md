@@ -20,3 +20,9 @@ description: "Reviews AURA DESK diffs for correctness, privacy, session races, a
 - Findings in severity order: BLOCKER/HIGH/MEDIUM/LOW with `path:line`, risk, minimal suggestion.
 - If no findings, explicitly list unverified surfaces and residual risks. Don't certify real screen/audio without physical test.
 - Do not make silent fixes during review unless user asked; if asked, one-file commits.
+
+## Independent Review & External AI Policy
+- **Strict Codex & Paid AI Ban**: Never post `@codex review`, `@codex security review`, `@codex address that feedback`, or invoke external paid cloud AI review mechanisms autonomously.
+- **Standard Review Flow**: Independent review is conducted by ChatGPT in standard conversational chat initiated by the user.
+- **No Codex Blocker**: Absence of a GitHub Codex review is never a blocker for PR review or merge authorization.
+- **Historical Context**: Past Codex comments can be consulted as historical context, but no new automated AI review triggers may be submitted.

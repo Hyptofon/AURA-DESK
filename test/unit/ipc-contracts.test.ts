@@ -4,7 +4,10 @@ import {
   isAllowedIpcChannel,
   CaptureSelectionSchema,
   SessionStatusSchema,
-  AppInfoSchema
+  AppInfoSchema,
+  DisplayBoundsSchema,
+  DisplayInfoSchema,
+  DisplayConfigurationSchema
 } from '../../src/shared/contracts/ipc'
 
 describe('IPC Contracts & Schemas', () => {
@@ -13,6 +16,7 @@ describe('IPC Contracts & Schemas', () => {
       expect(isAllowedIpcChannel(IPC_CHANNELS.APP_GET_INFO)).toBe(true)
       expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_GET_STATE)).toBe(true)
       expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_SET_SELECTION)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.DISPLAYS_GET_ALL)).toBe(true)
     })
 
     it('rejects unauthorized or arbitrary channels', () => {
@@ -139,6 +143,109 @@ describe('IPC Contracts & Schemas', () => {
 
     it('rejects missing required fields', () => {
       expect(AppInfoSchema.safeParse({ name: 'aura-desk' }).success).toBe(false)
+    })
+  })
+
+  describe('Display Schemas', () => {
+    const validBounds = { x: 0, y: 0, width: 1920, height: 1080 }
+    const validDisplay = {
+      id: '2541289',
+      label: 'Display 1 (Primary)',
+      isPrimary: true,
+      bounds: validBounds,
+      workArea: validBounds,
+      scaleFactor: 1.0,
+      rotation: 0
+    }
+
+    describe('DisplayBoundsSchema', () => {
+      it('accepts valid bounds', () => {
+        expect(DisplayBoundsSchema.safeParse(validBounds).success).toBe(true)
+        expect(DisplayBoundsSchema.safeParse({ x: -1920, y: 0, width: 1920, height: 1080 }).success).toBe(true)
+      })
+
+      it('rejects negative width or height', () => {
+        expect(DisplayBoundsSchema.safeParse({ x: 0, y: 0, width: -100, height: 1080 }).success).toBe(false)
+        expect(DisplayBoundsSchema.safeParse({ x: 0, y: 0, width: 1920, height: -1 }).success).toBe(false)
+      })
+
+      it('rejects extra properties', () => {
+        expect(DisplayBoundsSchema.safeParse({ ...validBounds, extra: true }).success).toBe(false)
+      })
+    })
+
+    describe('DisplayInfoSchema', () => {
+      it('accepts valid display metadata', () => {
+        const res = DisplayInfoSchema.safeParse(validDisplay)
+        expect(res.success).toBe(true)
+      })
+
+      it('rejects empty or whitespace-only display id', () => {
+        expect(DisplayInfoSchema.safeParse({ ...validDisplay, id: '' }).success).toBe(false)
+        expect(DisplayInfoSchema.safeParse({ ...validDisplay, id: '   ' }).success).toBe(false)
+      })
+
+      it('rejects non-positive scale factor', () => {
+        expect(DisplayInfoSchema.safeParse({ ...validDisplay, scaleFactor: 0 }).success).toBe(false)
+        expect(DisplayInfoSchema.safeParse({ ...validDisplay, scaleFactor: -1.25 }).success).toBe(false)
+      })
+
+      it('rejects unknown extra properties', () => {
+        expect(DisplayInfoSchema.safeParse({ ...validDisplay, injectedKey: 'value' }).success).toBe(false)
+      })
+    })
+
+    describe('DisplayConfigurationSchema', () => {
+      it('accepts single-display configuration', () => {
+        const config = {
+          displays: [validDisplay],
+          primaryId: '2541289',
+          count: 1,
+          isMultiDisplay: false,
+          selectedDisplayLost: false
+        }
+        expect(DisplayConfigurationSchema.safeParse(config).success).toBe(true)
+      })
+
+      it('accepts dual-monitor configuration with selectedDisplayLost flag', () => {
+        const secondDisplay = {
+          ...validDisplay,
+          id: '2541290',
+          label: 'Display 2',
+          isPrimary: false,
+          bounds: { x: -1920, y: 0, width: 1920, height: 1080 },
+          workArea: { x: -1920, y: 0, width: 1920, height: 1080 }
+        }
+        const config = {
+          displays: [validDisplay, secondDisplay],
+          primaryId: '2541289',
+          count: 2,
+          isMultiDisplay: true,
+          selectedDisplayLost: true
+        }
+        expect(DisplayConfigurationSchema.safeParse(config).success).toBe(true)
+      })
+
+      it('rejects negative count or extra fields', () => {
+        expect(
+          DisplayConfigurationSchema.safeParse({
+            displays: [validDisplay],
+            primaryId: '2541289',
+            count: -1,
+            isMultiDisplay: false
+          }).success
+        ).toBe(false)
+
+        expect(
+          DisplayConfigurationSchema.safeParse({
+            displays: [validDisplay],
+            primaryId: '2541289',
+            count: 1,
+            isMultiDisplay: false,
+            extraProperty: 'not-allowed'
+          }).success
+        ).toBe(false)
+      })
     })
   })
 })

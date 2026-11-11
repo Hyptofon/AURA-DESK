@@ -24,35 +24,43 @@
 - Workflow & PR Governance: established feature branch and mandatory Pull Request policy with independent code review (ChatGPT) in `docs/DEVELOPMENT_WORKFLOW.md`.
 - History Validator & Review Fixes: updated `scripts/verify-one-file-history.py` to support structurally valid two-parent GitHub PR merge commits (`Merge pull request #...`) while strictly rejecting octopus merges, arbitrary merge subjects, and local branch merges; ensured uniform `(passed, issues, summary)` error handling on invalid Git revisions; added 9-case regression test suite `scripts/test-verify-one-file-history.py` (9/9 PASS); enriched `.agents/skills/atomic-git-commits/SKILL.md` and `docs/DEVELOPMENT_WORKFLOW.md` to mandate SHA verification discipline and align with GitHub PR workflow.
 - P0.4 Typed IPC Bridge & Secure BrowserWindow (COMPLETED & MERGED, PR #2): Zod runtime validation at IPC boundary (`CaptureSelectionSchema`, `SessionStatusSchema`, `AppInfoSchema`), strict channel allowlist, main process validated handlers with dispatch gate, typed preload bridge with narrow invoke methods, BrowserWindow security hardening (sandbox, contextIsolation, nodeIntegration: false, webSecurity, navigation controls, window open handler action: 'deny'), and 32 unit/contract tests across 4 test suites passing green.
-- P0.4 Security & Code Review Fixes (MERGED via PR #2): resolved all findings from independent code review:
-  * P1 External URL validation (`src/main/security/navigation-guard.ts`): implemented `safeOpenExternal` and `validateExternalUrl` permitting only HTTPS with valid hostnames and no embedded credentials, rejecting dangerous protocols (`file:`, `javascript:`, `data:`, `shell:`, OS handlers), and catching errors without unhandled promise rejections.
-  * P1 Restrict BrowserWindow navigation (`src/main/index.ts` & `navigation-guard.ts`): restricted dev navigation strictly to `ELECTRON_RENDERER_URL` origin; pinned production navigation strictly to the exact application document HTML path; rejected arbitrary `file:` traversal and external origins.
-  * P1 IPC Sender & Frame authorization (`src/main/ipc/register-handlers.ts`): enforced that every IPC handler validates `event.sender === mainWindow.webContents` and `event.senderFrame` is a top-level frame (`parent === null`, `top === senderFrame`) matching the trusted origin, rejecting unauthorized senders and nested iframes with `UNAUTHORIZED_SENDER` or `UNAUTHORIZED_FRAME`.
-  * P2 Preload sandboxing & fail-closed context isolation (`src/shared/contracts/channels.ts` & `src/preload/index.ts`): extracted zero-dependency channel constants and pure types to keep runtime `zod` completely out of the preload bundle; enforced strict fail-closed behavior (throw security error) if `process.contextIsolated` is disabled; verified zero-dependency bundle (`out/preload/index.mjs` has 0 `zod` imports).
-  * P2 CaptureSelectionSchema strengthening (`src/shared/contracts/ipc.ts`): enforced `.strict()` on selection schemas to reject unexpected keys and `z.string().trim().min(1)` to reject whitespace-only display IDs.
-  * P2 Real Preload Bridge & Sandboxing tests (`test/unit/preload-api.test.ts`): replaced synthetic local mock with comprehensive tests of the real exported `auraApi`, verifying `ipcRenderer.invoke` calls, error unwrapping, forbidden property isolation, and fail-closed context isolation behavior.
-  * Skill Governance updates: enriched `.agents/skills/security-audit/SKILL.md` and `.agents/skills/architecture-design/SKILL.md` with guidelines on safe external URLs, navigation guards, sender/frame authorization, and fail-closed preload boundaries.
-- P0.4 Final Security Review Corrections (IN REVIEW, PR #2): resolved all residual review findings:
-  * P1 Fail-Closed IPC Authorization (`src/main/ipc/register-handlers.ts`): enforced mandatory authorization context for handler registration (throws on missing context); rejected missing event, untrusted sender, missing/null/destroyed `senderFrame`, empty or whitespace `frame.url`, and mismatched `trustedWebContents.mainFrame`; preserved Zod runtime validation; added 7 targeted negative unit test scenarios.
-  * P2 No Automatic External Browser Opening (`src/main/index.ts`): denied new window creation unconditionally (`action: 'deny'`) without calling `shell.openExternal()`; preserved isolated `safeOpenExternal` utility for future user-initiated actions; verified window.open does not open browser.
-  * P2 Exact Production Navigation Boundary (`src/main/security/navigation-guard.ts` & `src/main/index.ts`): enforced strict verification of document scheme (`file:`), hostname (rejecting remote UNC/network hosts even if pathname matches), exact file path, and rejected unexpected query parameters (`?injected=true`) while preserving in-document hash routing; guaranteed `ELECTRON_RENDERER_URL` is never loaded in packaged production builds.
-  * Security Skill Hardening (`.agents/skills/security-audit/SKILL.md`): recorded explicit lessons on fail-closed IPC context, never treating optional frame data as authorized, generic HTTPS validity not equating to user permission, complete document identity verification, and omitted metadata negative tests.
+- P0.4 Security & Code Review Fixes (MERGED via PR #2): resolved all findings from independent code review (P1 external URL validation, P1 BrowserWindow navigation restriction, P1 fail-closed sender/frame authorization, P2 preload sandboxing with 0 zod imports, P2 schema strengthening, P2 preload bridge unit tests).
+- P1.1 Windows Display Enumeration & Hotplug Lifecycle (IN REVIEW, PR #3):
+  * Contracts (`src/shared/contracts/channels.ts` & `src/shared/contracts/ipc.ts`): added `DISPLAYS_GET_ALL` and `DISPLAYS_CHANGED` channels, pure interfaces (`DisplayBounds`, `DisplayInfo`, `DisplayConfiguration`), and strict Zod validation schemas (`DisplayBoundsSchema`, `DisplayInfoSchema`, `DisplayConfigurationSchema`). Added 10 contract tests.
+  * Core Manager (`src/main/displays/display-manager.ts`): implemented `DisplayManager` supporting single/dual/multi-monitor setups, display normalization (converting IDs to string, calculating geometry, workArea, scaleFactor, rotation, primary flag), hotplug event lifecycle (`display-added`, `display-removed`, `display-metrics-changed`) with listener cleanup, deterministic ID sorting, comprehensive deduplication key including `workArea`, `label`, `isPrimary`, and non-mutating `selectedDisplayLost: true` detection when a selected display disconnects without automatic fallback.
+  * Event Forwarder & IPC Handlers (`src/main/displays/display-manager.ts`, `src/main/ipc/register-handlers.ts`, `src/main/index.ts`): implemented `forwardDisplayEvents` validating display configuration against `DisplayConfigurationSchema` before dispatching to `mainWindow.webContents`, suppressing messages if window is destroyed, and cleaning up listeners on window close. Registered `DISPLAYS_GET_ALL` with fail-closed sender context validation.
+  * Preload Bridge (`src/preload/index.ts`): exposed typed `getDisplays(): Promise<DisplayConfiguration>` and `onDisplaysChanged(callback): () => void` returning dedicated unsubscribe cleanup function, keeping preload bundle free of external dependencies (0 zod imports).
+  * Skill Governance: updated `.agents/skills/screen-capture/SKILL.md` with explicit rules for real consumer connection, narrow typed IPC bridge, mandatory unsubscribe, comprehensive deduplication, and distinction between mock tests and physical hardware reality.
+  * Host Hardware Verification: host machine verified with two physical 1080p monitors (`DISPLAY1` primary at 0,0, `DISPLAY2` secondary at -1920,1) via .NET Windows.Forms enumeration.
+  * Unit & Contract Tests: 108 tests total across 6 test suites passing green (`display-manager.test.ts` [20], `ipc-contracts.test.ts` [26], `ipc-handlers.test.ts` [28], `navigation-guard.test.ts` [17], `preload-api.test.ts` [13], `App.test.tsx` [4]).
+- External AI & Codex Review Policy Governance: permanently banned autonomous Codex review triggers (`@codex review`), Codex Cloud tasks, and paid external AI reviews across `AGENTS.md`, `docs/DEVELOPMENT_WORKFLOW.md`, and `.agents/skills/code-review/SKILL.md`. Formalized that independent code review is conducted exclusively by ChatGPT in standard conversational chat initiated by the user.
 
 ## Latest evidence
 
 - `py -3 scripts/test-verify-one-file-history.py`: PASS (9 regression tests covering single-file commits, multi-file rejection, 2-parent merges, octopus merges, arbitrary merge subjects, non-conforming formats, local branch merges, non-existent revision handling, and CLI exit code).
 - `py -3 scripts/validate-blueprint.py`: PASS (18 skills, 5 rules, 12 expected files).
-- `py -3 scripts/verify-one-file-history.py 100`: PASS (all 100 audited commits touch exactly 1 file: 99 single-file commits + 1 valid 2-parent PR merge).
+- `py -3 scripts/verify-one-file-history.py 100`: PASS (all 100 audited commits touch exactly 1 file: 98 single-file commits + 2 valid 2-parent PR merges).
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (69 tests total across 5 suites: navigation-guard [17], preload-api [9], ipc-contracts [16], ipc-handlers [23], App.test.tsx [4]).
-- `npm run build`: PASS (electron-vite built main, preload 1.38 kB with 0 zod dependencies, and renderer).
-- Manual Windows check: run `npm run dev` in PowerShell/terminal to observe the desktop window.
+- `npm run test`: PASS (108 tests total across 6 suites: display-manager [20], navigation-guard [17], preload-api [13], ipc-contracts [26], ipc-handlers [28], App.test.tsx [4]).
+- `npm run build`: PASS (electron-vite built main, preload 1.63 kB with 0 zod dependencies, and renderer).
+- Physical dual-monitor configuration: PASS (host verified with two physical 1080p monitors via .NET enumeration).
+- Real Electron physical cable disconnect/reconnect hotplug: NEEDS MANUAL TEST (mock tests verify protocol correctness; manual Windows test procedure documented below).
+
+### Reproducible Windows Manual Test Instructions:
+1. Run `npm run dev` in PowerShell to launch the desktop application.
+2. Open DevTools (`Ctrl+Shift+I`) and inspect `window.api`:
+   - Execute: `await window.api.getDisplays()` → verifies physical displays enumerated with bounds and workArea.
+   - Execute: `const unsub = window.api.onDisplaysChanged(c => console.log('HOTPLUG EVENT:', c))` → subscribes to hotplug stream.
+3. Test metrics/workArea change: resize or move Windows taskbar or change screen scaling in Windows Display Settings. Observe `HOTPLUG EVENT` logged with updated `workArea`.
+4. Test physical hotplug: turn off or disconnect secondary monitor. Observe `HOTPLUG EVENT` logged with `count: 1`, `isMultiDisplay: false`, and `selectedDisplayLost: true` if secondary display was selected.
+5. Reconnect secondary monitor: observe `HOTPLUG EVENT` logged with `count: 2`, `selectedDisplayLost: false`.
+6. Execute `unsub()` to verify cleanup.
 
 ## Next recommended task
 
-P1.1: Enumerate two monitors, stable IDs, resolutions and hotplug notification (Milestone M1).
+P1.2: Capture Single display only; validate no leakage from other physical display (Milestone M1).
 
 ## Completed work template (fill after genuine verification)
 
