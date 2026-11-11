@@ -1,10 +1,12 @@
 import { screen } from 'electron'
-import type {
-  DisplayBounds,
-  DisplayInfo,
-  DisplayConfiguration,
-  CaptureSelection
+import {
+  IPC_CHANNELS,
+  type DisplayBounds,
+  type DisplayInfo,
+  type DisplayConfiguration,
+  type CaptureSelection
 } from '../../shared/contracts/channels'
+import { DisplayConfigurationSchema } from '../../shared/contracts/ipc'
 import { getCurrentCaptureSelection } from '../ipc/register-handlers'
 
 export interface ElectronDisplayLike {
@@ -193,16 +195,67 @@ export class DisplayManager {
   }
 
   private serializeConfig(config: DisplayConfiguration): string {
+    // Sort displays deterministically by ID to guarantee canonical ordering
+    const sortedDisplays = [...config.displays].sort((a, b) => a.id.localeCompare(b.id))
+
     return JSON.stringify({
       count: config.count,
       primaryId: config.primaryId,
-      selectedDisplayLost: config.selectedDisplayLost,
-      displays: config.displays.map((d) => ({
+      selectedDisplayLost: Boolean(config.selectedDisplayLost),
+      displays: sortedDisplays.map((d) => ({
         id: d.id,
-        bounds: d.bounds,
+        label: d.label,
+        isPrimary: d.isPrimary,
+        bounds: {
+          x: d.bounds.x,
+          y: d.bounds.y,
+          width: d.bounds.width,
+          height: d.bounds.height
+        },
+        workArea: {
+          x: d.workArea.x,
+          y: d.workArea.y,
+          width: d.workArea.width,
+          height: d.workArea.height
+        },
         scaleFactor: d.scaleFactor,
         rotation: d.rotation
       }))
     })
   }
+}
+
+export interface WebContentsSenderLike {
+  isDestroyed?: () => boolean
+  send(channel: string, ...args: unknown[]): void
+}
+
+/**
+ * Sets up safe, validated display change forwarding from DisplayManager to WebContents.
+ * - Enforces Zod schema validation before sending to renderer.
+ * - Suppresses sending if target WebContents is destroyed or missing.
+ * - Returns an unsubscribe teardown function.
+ */
+export function forwardDisplayEvents(
+  target: WebContentsSenderLike | null | undefined,
+  displayManager: DisplayManager
+): () => void {
+  if (!target || typeof target.send !== 'function') {
+    return () => {}
+  }
+
+  const listener = (config: DisplayConfiguration): void => {
+    if (typeof target.isDestroyed === 'function' && target.isDestroyed()) {
+      return
+    }
+
+    try {
+      const validated = DisplayConfigurationSchema.parse(config)
+      target.send(IPC_CHANNELS.DISPLAYS_CHANGED, validated)
+    } catch (err) {
+      console.error('Failed to validate or forward display configuration:', err)
+    }
+  }
+
+  return displayManager.addListener(listener)
 }
