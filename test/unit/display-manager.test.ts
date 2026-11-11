@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   DisplayManager,
+  forwardDisplayEvents,
   type ScreenLike,
-  type ElectronDisplayLike
+  type ElectronDisplayLike,
+  type WebContentsSenderLike
 } from '../../src/main/displays/display-manager'
-import type { CaptureSelection } from '../../src/shared/contracts/channels'
+import { IPC_CHANNELS, type CaptureSelection } from '../../src/shared/contracts/channels'
 
 class MockScreen implements ScreenLike {
   public displays: ElectronDisplayLike[] = []
@@ -270,6 +272,199 @@ describe('DisplayManager', () => {
       expect(mockScreen.listeners['display-added'].length).toBe(0)
       expect(mockScreen.listeners['display-removed'].length).toBe(0)
       expect(mockScreen.listeners['display-metrics-changed'].length).toBe(0)
+    })
+
+    describe('Codex Deduplication Regressions', () => {
+      it('triggers notification when only workArea changes (e.g. taskbar height change)', () => {
+        const disp1 = createDisplay(1, 0, 0, 1920, 1080)
+        mockScreen.displays = [disp1]
+        mockScreen.primaryDisplay = disp1
+
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const listenerSpy = vi.fn()
+        manager.addListener(listenerSpy)
+
+        // workArea changes from 1040 to 1000
+        const updatedDisp1: ElectronDisplayLike = {
+          ...disp1,
+          workArea: { x: 0, y: 0, width: 1920, height: 1000 }
+        }
+        mockScreen.displays = [updatedDisp1]
+        mockScreen.primaryDisplay = updatedDisp1
+        mockScreen.emit('display-metrics-changed', {}, updatedDisp1, ['workArea'])
+
+        expect(listenerSpy).toHaveBeenCalledTimes(1)
+        expect(listenerSpy.mock.calls[0][0].displays[0].workArea.height).toBe(1000)
+      })
+
+      it('triggers notification when display label changes', () => {
+        const disp1 = createDisplay(1, 0, 0, 1920, 1080, 'Initial Monitor')
+        mockScreen.displays = [disp1]
+        mockScreen.primaryDisplay = disp1
+
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const listenerSpy = vi.fn()
+        manager.addListener(listenerSpy)
+
+        const updatedDisp1: ElectronDisplayLike = {
+          ...disp1,
+          label: 'Renamed Monitor'
+        }
+        mockScreen.displays = [updatedDisp1]
+        mockScreen.primaryDisplay = updatedDisp1
+        mockScreen.emit('display-metrics-changed', {}, updatedDisp1, [])
+
+        expect(listenerSpy).toHaveBeenCalledTimes(1)
+        expect(listenerSpy.mock.calls[0][0].displays[0].label).toBe('Renamed Monitor')
+      })
+
+      it('suppresses notification when configuration is completely identical', () => {
+        const disp1 = createDisplay(1, 0, 0, 1920, 1080)
+        mockScreen.displays = [disp1]
+        mockScreen.primaryDisplay = disp1
+
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const listenerSpy = vi.fn()
+        manager.addListener(listenerSpy)
+
+        // Multiple spurious identical events
+        mockScreen.emit('display-metrics-changed', {}, disp1, [])
+        mockScreen.emit('display-metrics-changed', {}, disp1, [])
+        mockScreen.emit('display-added', {}, disp1)
+
+        expect(listenerSpy).not.toHaveBeenCalled()
+      })
+
+      it('triggers notification with selectedDisplayLost=true when selected display is disconnected', () => {
+        const disp1 = createDisplay(1, 0, 0)
+        const disp2 = createDisplay(2, 1920, 0)
+        mockScreen.displays = [disp1, disp2]
+        mockScreen.primaryDisplay = disp1
+
+        // User selected disp-2
+        mockSelection = { mode: 'single', displayId: '2' }
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const listenerSpy = vi.fn()
+        manager.addListener(listenerSpy)
+
+        // Disconnect display 2
+        mockScreen.displays = [disp1]
+        mockScreen.emit('display-removed', {}, disp2)
+
+        expect(listenerSpy).toHaveBeenCalledTimes(1)
+        const config = listenerSpy.mock.calls[0][0]
+        expect(config.selectedDisplayLost).toBe(true)
+        expect(config.count).toBe(1)
+      })
+
+      it('triggers notification with updated config when disconnected display is reconnected', () => {
+        const disp1 = createDisplay(1, 0, 0)
+        const disp2 = createDisplay(2, 1920, 0)
+        mockScreen.displays = [disp1]
+        mockScreen.primaryDisplay = disp1
+
+        mockSelection = { mode: 'single', displayId: '2' }
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const listenerSpy = vi.fn()
+        manager.addListener(listenerSpy)
+
+        // Initial config when disp2 is missing has selectedDisplayLost: true
+        expect(manager.getDisplayConfiguration().selectedDisplayLost).toBe(true)
+
+        // Reconnect display 2
+        mockScreen.displays = [disp1, disp2]
+        mockScreen.emit('display-added', {}, disp2)
+
+        expect(listenerSpy).toHaveBeenCalledTimes(1)
+        const config = listenerSpy.mock.calls[0][0]
+        expect(config.selectedDisplayLost).toBe(false)
+        expect(config.count).toBe(2)
+      })
+    })
+
+    describe('forwardDisplayEvents', () => {
+      it('forwards validated display configuration to WebContents', () => {
+        const disp1 = createDisplay(1, 0, 0)
+        mockScreen.displays = [disp1]
+        mockScreen.primaryDisplay = disp1
+
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const target: WebContentsSenderLike = {
+          isDestroyed: vi.fn().mockReturnValue(false),
+          send: vi.fn()
+        }
+
+        const unsubscribe = forwardDisplayEvents(target, manager)
+
+        // Add a second display
+        const disp2 = createDisplay(2, 1920, 0)
+        mockScreen.displays = [disp1, disp2]
+        mockScreen.emit('display-added', {}, disp2)
+
+        expect(target.send).toHaveBeenCalledTimes(1)
+        expect(target.send).toHaveBeenCalledWith(
+          IPC_CHANNELS.DISPLAYS_CHANGED,
+          expect.objectContaining({
+            count: 2,
+            isMultiDisplay: true,
+            primaryId: '1'
+          })
+        )
+
+        unsubscribe()
+      })
+
+      it('does not send if target isDestroyed returns true', () => {
+        const disp1 = createDisplay(1, 0, 0)
+        mockScreen.displays = [disp1]
+        mockScreen.primaryDisplay = disp1
+
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const target: WebContentsSenderLike = {
+          isDestroyed: vi.fn().mockReturnValue(true),
+          send: vi.fn()
+        }
+
+        forwardDisplayEvents(target, manager)
+
+        const disp2 = createDisplay(2, 1920, 0)
+        mockScreen.displays = [disp1, disp2]
+        mockScreen.emit('display-added', {}, disp2)
+
+        expect(target.send).not.toHaveBeenCalled()
+      })
+
+      it('unsubscribe stops forwarding further display events', () => {
+        const disp1 = createDisplay(1, 0, 0)
+        mockScreen.displays = [disp1]
+        mockScreen.primaryDisplay = disp1
+
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const target: WebContentsSenderLike = {
+          isDestroyed: vi.fn().mockReturnValue(false),
+          send: vi.fn()
+        }
+
+        const unsubscribe = forwardDisplayEvents(target, manager)
+
+        const disp2 = createDisplay(2, 1920, 0)
+        mockScreen.displays = [disp1, disp2]
+        mockScreen.emit('display-added', {}, disp2)
+        expect(target.send).toHaveBeenCalledTimes(1)
+
+        unsubscribe()
+
+        mockScreen.displays = [disp1]
+        mockScreen.emit('display-removed', {}, disp2)
+        expect(target.send).toHaveBeenCalledTimes(1) // Still 1, not called again
+      })
+
+      it('safely handles null or invalid target', () => {
+        const manager = new DisplayManager(mockScreen, () => mockSelection)
+        const unsubscribe = forwardDisplayEvents(null, manager)
+        expect(typeof unsubscribe).toBe('function')
+        expect(() => unsubscribe()).not.toThrow()
+      })
     })
   })
 })
