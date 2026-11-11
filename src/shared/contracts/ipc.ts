@@ -100,3 +100,47 @@ export const DisplayConfigurationSchema = z
     selectedDisplayLost: z.boolean().optional()
   })
   .strict()
+
+/**
+ * Session start request schema (optional explicit selection override).
+ */
+export const SessionStartRequestSchema = z
+  .object({
+    selection: CaptureSelectionSchema.optional()
+  })
+  .strict()
+  .optional()
+
+/**
+ * Session start response payload schema.
+ */
+export const SessionStartResponseSchema = z
+  .object({
+    success: z.boolean(),
+    status: SessionStatusSchema,
+    displayId: z.string().optional()
+  })
+  .strict()
+
+/**
+ * Session stop response payload schema.
+ */
+export const SessionStopResponseSchema = z
+  .object({
+    success: z.boolean(),
+    status: SessionStatusSchema
+  })
+  .strict()
+
+/**
+ * Capture status schema.
+ */
+export const CaptureStatusSchema = z
+  .object({
+    isActive: z.boolean(),
+    activeDisplayId: z.string().nullable(),
+    frameCount: z.number().int().nonnegative(),
+    totalBytes: z.number().int().nonnegative(),
+    lastError: z.string().nullable().optional()
+  })
+  .strict()
