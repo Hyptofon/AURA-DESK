@@ -1,77 +1,131 @@
-import { describe, it, expect } from 'vitest'
-import type { AuraApi } from '../../src/preload/index'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-describe('AuraApi contract and security boundary', () => {
-  const createMockApi = (): AuraApi => ({
-    platform: 'win32',
-    version: '0.1.0',
-    getAppInfo: async () => ({
-      name: 'aura-desk',
-      version: '0.1.0',
-      platform: 'win32',
-      isPackaged: false
-    }),
-    getSessionState: async () => ({ status: 'idle' }),
-    setCaptureSelection: async (selection) => ({ success: true, selection })
+const mockInvoke = vi.fn()
+const mockExposeInMainWorld = vi.fn()
+
+vi.mock('electron', () => ({
+  ipcRenderer: {
+    invoke: (...args: unknown[]) => mockInvoke(...args)
+  },
+  contextBridge: {
+    exposeInMainWorld: (...args: unknown[]) => mockExposeInMainWorld(...args)
+  }
+}))
+
+import { auraApi, exposeAuraApi } from '../../src/preload/index'
+import { IPC_CHANNELS } from '../../src/shared/contracts/channels'
+
+describe('Real Preload AuraApi and Context Isolation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  it('validates shape and typed methods of AuraApi', () => {
-    const api = createMockApi()
+  describe('Real auraApi object shape and security boundaries', () => {
+    it('has expected metadata properties', () => {
+      expect(auraApi.platform).toBe(process.platform)
+      expect(auraApi.version).toBe('0.1.0')
+      expect(typeof auraApi.getAppInfo).toBe('function')
+      expect(typeof auraApi.getSessionState).toBe('function')
+      expect(typeof auraApi.setCaptureSelection).toBe('function')
+    })
 
-    expect(api.platform).toBe('win32')
-    expect(api.version).toBe('0.1.0')
-    expect(typeof api.getAppInfo).toBe('function')
-    expect(typeof api.getSessionState).toBe('function')
-    expect(typeof api.setCaptureSelection).toBe('function')
+    it('does not expose raw Node or Electron APIs on auraApi', () => {
+      const apiRecord = auraApi as unknown as Record<string, unknown>
+      const forbiddenProperties = [
+        'ipcRenderer',
+        'require',
+        'process',
+        'fs',
+        'child_process',
+        'send',
+        'invoke',
+        'on',
+        'removeAllListeners'
+      ]
+
+      for (const prop of forbiddenProperties) {
+        expect(apiRecord[prop]).toBeUndefined()
+      }
+    })
   })
 
-  it('ensures no raw ipcRenderer or Node modules are exposed on AuraApi', () => {
-    const api = createMockApi()
-    const apiRecord = api as unknown as Record<string, unknown>
+  describe('Real auraApi method invocations via ipcRenderer', () => {
+    it('calls APP_GET_INFO channel and unwraps successful data', async () => {
+      const expectedData = {
+        name: 'aura-desk',
+        version: '0.1.0',
+        platform: 'win32',
+        isPackaged: false
+      }
+      mockInvoke.mockResolvedValueOnce({ ok: true, data: expectedData })
 
-    expect(apiRecord['ipcRenderer']).toBeUndefined()
-    expect(apiRecord['require']).toBeUndefined()
-    expect(apiRecord['process']).toBeUndefined()
-    expect(apiRecord['fs']).toBeUndefined()
-    expect(apiRecord['child_process']).toBeUndefined()
-    expect(apiRecord['send']).toBeUndefined()
-    expect(apiRecord['invoke']).toBeUndefined()
-    expect(apiRecord['on']).toBeUndefined()
+      const result = await auraApi.getAppInfo()
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.APP_GET_INFO, undefined)
+      expect(result).toEqual(expectedData)
+    })
+
+    it('calls SESSION_GET_STATE channel and unwraps state data', async () => {
+      mockInvoke.mockResolvedValueOnce({ ok: true, data: { status: 'idle' } })
+
+      const result = await auraApi.getSessionState()
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_GET_STATE, undefined)
+      expect(result).toEqual({ status: 'idle' })
+    })
+
+    it('calls SESSION_SET_SELECTION channel with payload and returns selection', async () => {
+      const selection = { mode: 'single' as const, displayId: 'disp-01' }
+      mockInvoke.mockResolvedValueOnce({
+        ok: true,
+        data: { success: true, selection }
+      })
+
+      const result = await auraApi.setCaptureSelection(selection)
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_SET_SELECTION, selection)
+      expect(result.success).toBe(true)
+      expect(result.selection).toEqual(selection)
+    })
+
+    it('throws typed Error when main process returns an error response', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        ok: false,
+        error: {
+          code: 'UNAUTHORIZED_SENDER',
+          message: 'Sender is not authorized'
+        }
+      })
+
+      await expect(auraApi.getAppInfo()).rejects.toThrow(
+        '[UNAUTHORIZED_SENDER] Sender is not authorized'
+      )
+    })
+
+    it('throws generic IPC_ERROR when response is empty or malformed', async () => {
+      mockInvoke.mockResolvedValueOnce(null)
+
+      await expect(auraApi.getSessionState()).rejects.toThrow(
+        '[IPC_ERROR] IPC request failed'
+      )
+    })
   })
 
-  it('handles getAppInfo call and returns typed response', async () => {
-    const api = createMockApi()
-    const info = await api.getAppInfo()
+  describe('Fail-Closed Context Isolation', () => {
+    it('throws security error if context isolation is disabled', () => {
+      const mockBridge = { exposeInMainWorld: vi.fn() }
 
-    expect(info.name).toBe('aura-desk')
-    expect(info.version).toBe('0.1.0')
-    expect(info.platform).toBe('win32')
-    expect(info.isPackaged).toBe(false)
-  })
+      expect(() => exposeAuraApi(mockBridge as never, false)).toThrow(
+        /Security violation: contextIsolation must be enabled/
+      )
+      expect(mockBridge.exposeInMainWorld).not.toHaveBeenCalled()
+    })
 
-  it('handles getSessionState call and returns valid status', async () => {
-    const api = createMockApi()
-    const state = await api.getSessionState()
+    it('calls exposeInMainWorld with api when context isolation is enabled', () => {
+      const mockBridge = { exposeInMainWorld: vi.fn() }
 
-    expect(state.status).toBe('idle')
-  })
-
-  it('handles setCaptureSelection call with valid mode both', async () => {
-    const api = createMockApi()
-    const res = await api.setCaptureSelection({ mode: 'both' })
-
-    expect(res.success).toBe(true)
-    expect(res.selection.mode).toBe('both')
-  })
-
-  it('handles setCaptureSelection call with valid mode single', async () => {
-    const api = createMockApi()
-    const res = await api.setCaptureSelection({ mode: 'single', displayId: 'disp-primary' })
-
-    expect(res.success).toBe(true)
-    expect(res.selection.mode).toBe('single')
-    if (res.selection.mode === 'single') {
-      expect(res.selection.displayId).toBe('disp-primary')
-    }
+      expect(() => exposeAuraApi(mockBridge as never, true)).not.toThrow()
+      expect(mockBridge.exposeInMainWorld).toHaveBeenCalledWith('api', auraApi)
+    })
   })
 })
