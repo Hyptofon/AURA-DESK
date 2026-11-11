@@ -5,12 +5,16 @@ import {
   CaptureSelectionSchema,
   AppInfoSchema,
   DisplayConfigurationSchema,
+  SessionStartRequestSchema,
+  SessionStartResponseSchema,
+  SessionStopResponseSchema,
   type CaptureSelection,
   type SessionStatus,
   type DisplayConfiguration,
   type IpcResponse
 } from '../../shared/contracts/ipc'
 import { DisplayManager } from '../displays/display-manager'
+import { SingleDisplayCapturer } from '../capture/single-display-capturer'
 
 export interface IpcMainLike {
   handle(
@@ -193,6 +197,21 @@ export function setDisplayManager(manager: DisplayManager | null): void {
   activeDisplayManager = manager
 }
 
+let activeCapturer: SingleDisplayCapturer | null = null
+
+export function getSingleDisplayCapturer(
+  manager: DisplayManager = getDisplayManager()
+): SingleDisplayCapturer {
+  if (!activeCapturer) {
+    activeCapturer = new SingleDisplayCapturer(manager)
+  }
+  return activeCapturer
+}
+
+export function setSingleDisplayCapturer(capturer: SingleDisplayCapturer | null): void {
+  activeCapturer = capturer
+}
+
 /**
  * Safe IPC Handler registration.
  * Fails closed if authorization context is missing.
@@ -201,7 +220,8 @@ export function setDisplayManager(manager: DisplayManager | null): void {
 export function registerIpcHandlers(
   ipc: IpcMainLike = ipcMain,
   validatorOrContext?: IpcSenderValidator | IpcSenderValidationContext,
-  displayManager?: DisplayManager
+  displayManager?: DisplayManager,
+  singleDisplayCapturer?: SingleDisplayCapturer
 ): void {
   if (!validatorOrContext) {
     throw new Error(
@@ -218,6 +238,7 @@ export function registerIpcHandlers(
       : createSenderValidator(validatorOrContext)
 
   const manager = displayManager ?? getDisplayManager()
+  const capturer = singleDisplayCapturer ?? getSingleDisplayCapturer(manager)
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
     const auth = validator.validate(event)
@@ -313,6 +334,104 @@ export function registerIpcHandlers(
           success: true,
           selection: currentCaptureSelection
         }
+      }
+    }
+  )
+
+  ipc.handle(
+    IPC_CHANNELS.SESSION_START,
+    async (event: unknown, payload?: unknown): Promise<IpcResponse<unknown>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      if (payload !== undefined && payload !== null) {
+        const parsed = SessionStartRequestSchema.safeParse(payload)
+        if (!parsed.success) {
+          return {
+            ok: false,
+            error: {
+              code: 'INVALID_PAYLOAD',
+              message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+            }
+          }
+        }
+        if (parsed.data?.selection) {
+          currentCaptureSelection = parsed.data.selection
+        }
+      }
+
+      if (currentCaptureSelection.mode === 'both') {
+        return {
+          ok: false,
+          error: {
+            code: 'UNSUPPORTED_MODE',
+            message:
+              'Simultaneous both-display capture is scheduled for Milestone M1 Task P1.3; please select a single display'
+          }
+        }
+      }
+
+      try {
+        currentSessionStatus = 'starting'
+        await capturer.start(currentCaptureSelection.displayId)
+        currentSessionStatus = 'active'
+
+        const responsePayload = {
+          success: true,
+          status: 'active' as const,
+          displayId: currentCaptureSelection.displayId
+        }
+        return {
+          ok: true,
+          data: SessionStartResponseSchema.parse(responsePayload)
+        }
+      } catch (err: unknown) {
+        currentSessionStatus = 'error'
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          ok: false,
+          error: {
+            code: 'CAPTURE_START_FAILED',
+            message: msg
+          }
+        }
+      }
+    }
+  )
+
+  ipc.handle(
+    IPC_CHANNELS.SESSION_STOP,
+    async (event: unknown): Promise<IpcResponse<unknown>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      currentSessionStatus = 'stopping'
+      await capturer.stop()
+      currentSessionStatus = 'idle'
+
+      const responsePayload = {
+        success: true,
+        status: 'idle' as const
+      }
+      return {
+        ok: true,
+        data: SessionStopResponseSchema.parse(responsePayload)
       }
     }
   )
