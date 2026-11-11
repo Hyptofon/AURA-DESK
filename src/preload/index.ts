@@ -17,6 +17,7 @@ export interface AuraApi {
     selection: CaptureSelection
   ): Promise<{ success: boolean; selection: CaptureSelection }>
   getDisplays?(): Promise<DisplayConfiguration>
+  onDisplaysChanged?(callback: (config: DisplayConfiguration) => void): () => void
 }
 
 /**
@@ -44,7 +45,20 @@ export const auraApi: AuraApi = {
       IPC_CHANNELS.SESSION_SET_SELECTION,
       selection
     ),
-  getDisplays: () => invokeChannel<DisplayConfiguration>(IPC_CHANNELS.DISPLAYS_GET_ALL)
+  getDisplays: () => invokeChannel<DisplayConfiguration>(IPC_CHANNELS.DISPLAYS_GET_ALL),
+  onDisplaysChanged: (callback: (config: DisplayConfiguration) => void): (() => void) => {
+    const listener = (_event: unknown, data: unknown) => {
+      try {
+        callback(data as DisplayConfiguration)
+      } catch (err) {
+        console.error('Error in onDisplaysChanged callback:', err)
+      }
+    }
+    ipcRenderer.on(IPC_CHANNELS.DISPLAYS_CHANGED, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.DISPLAYS_CHANGED, listener)
+    }
+  }
 }
 
 /**
