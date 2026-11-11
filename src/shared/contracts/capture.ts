@@ -26,6 +26,7 @@ export interface CaptureTarget {
   sourceId: string
   displayId: string
   bounds?: DisplayBounds
+  sourceName?: string
 }
 
 /**
@@ -34,6 +35,7 @@ export interface CaptureTarget {
  * (e.g. MediaStream, Windows native helper, or test adapter).
  */
 export interface FrameCaptureBackend {
+  start?(target: CaptureTarget): Promise<void> | void
   captureFrame(target: CaptureTarget): Promise<CapturedFrame>
   stop?(): Promise<void> | void
 }
