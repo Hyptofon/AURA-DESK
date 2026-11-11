@@ -35,10 +35,18 @@ export function isAllowedNavigation(
     const normalizePath = (p: string): string => decodeURIComponent(p).toLowerCase().replace(/\\/g, '/')
     const normalizeHost = (h: string): string => h.toLowerCase()
 
-    return (
-      normalizeHost(parsed.hostname) === normalizeHost(expected.hostname) &&
-      normalizePath(parsed.pathname) === normalizePath(expected.pathname)
-    )
+    // Hostname must strictly match expected file URL (rejects file://remote-host even if pathname matches)
+    if (normalizeHost(parsed.hostname) !== normalizeHost(expected.hostname)) {
+      return false
+    }
+
+    // Reject unexpected query parameters in production document (e.g. file:///app/index.html?token=leak)
+    if (parsed.search !== expected.search) {
+      return false
+    }
+
+    // Path must strictly match the expected local document path (hash navigation within the same document is preserved)
+    return normalizePath(parsed.pathname) === normalizePath(expected.pathname)
   } catch {
     return false
   }
