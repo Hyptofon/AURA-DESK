@@ -27,6 +27,7 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(typeof auraApi.getAppInfo).toBe('function')
       expect(typeof auraApi.getSessionState).toBe('function')
       expect(typeof auraApi.setCaptureSelection).toBe('function')
+      expect(typeof auraApi.getDisplays).toBe('function')
     })
 
     it('does not expose raw Node or Electron APIs on auraApi', () => {
@@ -86,6 +87,32 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_SET_SELECTION, selection)
       expect(result.success).toBe(true)
       expect(result.selection).toEqual(selection)
+    })
+
+    it('calls DISPLAYS_GET_ALL channel and unwraps display configuration data', async () => {
+      const mockConfig = {
+        displays: [
+          {
+            id: '1',
+            label: 'Display 1 (Primary)',
+            isPrimary: true,
+            bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+            workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1.0,
+            rotation: 0
+          }
+        ],
+        primaryId: '1',
+        count: 1,
+        isMultiDisplay: false,
+        selectedDisplayLost: false
+      }
+      mockInvoke.mockResolvedValueOnce({ ok: true, data: mockConfig })
+
+      const result = await auraApi.getDisplays!()
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.DISPLAYS_GET_ALL, undefined)
+      expect(result).toEqual(mockConfig)
     })
 
     it('throws typed Error when main process returns an error response', async () => {
