@@ -32,7 +32,7 @@
   * Preload Bridge (`src/preload/index.ts`): exposed typed `getDisplays(): Promise<DisplayConfiguration>` with zero-dependency pure contracts in preload.
   * Main Process Lifecycle (`src/main/index.ts`): integrated `DisplayManager` initialization and clean teardown upon window close.
   * Host Hardware Verification: verified target Windows host with two physical 1080p monitors (`DISPLAY1` primary at 0,0, `DISPLAY2` secondary at -1920,1) via .NET Windows.Forms enumeration.
-  * Unit & Contract Tests: 80 tests total across 6 test suites passing green (`display-manager.test.ts` [11], `ipc-contracts.test.ts` [26], `ipc-handlers.test.ts` [24], `navigation-guard.test.ts` [17], `preload-api.test.ts` [10], `App.test.tsx` [4]).
+  * Unit & Contract Tests: 93 tests total across 6 test suites passing green (`display-manager.test.ts` [11], `ipc-contracts.test.ts` [26], `ipc-handlers.test.ts` [25], `navigation-guard.test.ts` [17], `preload-api.test.ts` [10], `App.test.tsx` [4]).
 
 ## Latest evidence
 
@@ -42,7 +42,7 @@
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (80 tests total across 6 suites: display-manager [11], navigation-guard [17], preload-api [10], ipc-contracts [26], ipc-handlers [24], App.test.tsx [4]).
+- `npm run test`: PASS (93 tests total across 6 suites: display-manager [11], navigation-guard [17], preload-api [10], ipc-contracts [26], ipc-handlers [25], App.test.tsx [4]).
 - `npm run build`: PASS (electron-vite built main, preload 1.55 kB with 0 zod dependencies, and renderer).
 - Manual Windows check: run `npm run dev` in PowerShell/terminal to observe the desktop window.
 
