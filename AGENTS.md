@@ -1,6 +1,6 @@
 # AURA DESK — mandatory project instructions for Antigravity
 
-**This file is always active.** Repository is a PERSONAL Windows AI desktop project, **currently blueprint-only**; never fabricate implementation, test results, live model capability, screenshots, or operating-system behavior.
+**This file is always active.** Repository is a PERSONAL Windows AI desktop project in active development. Current state: minimal working Electron shell, React 18 UI with Quiet Instrument design tokens, TypeScript strict, Vitest/RTL unit tests, ESLint, Git hooks, and PR workflow governance (Milestone M0 in progress). Screen/audio capture, question detection, and OpenRouter modules are not yet implemented; never fabricate implementation, test results, live model capability, screenshots, or operating-system behavior.
 
 ## Read first, then act
 
