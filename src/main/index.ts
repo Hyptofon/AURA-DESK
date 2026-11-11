@@ -2,7 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
-import { isAllowedNavigation, safeOpenExternal } from './security/navigation-guard'
+import { isAllowedNavigation } from './security/navigation-guard'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -33,9 +33,8 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
-  // Deny new window creation by default, safely open verified HTTPS URLs in default external browser
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    void safeOpenExternal(details.url)
+  // Deny new window creation by default; do not automatically open external browser without explicit user confirmation
+  mainWindow.webContents.setWindowOpenHandler(() => {
     return { action: 'deny' }
   })
 
@@ -43,7 +42,7 @@ function createWindow(): void {
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     const allowed = isAllowedNavigation(navigationUrl, {
       isDev,
-      rendererUrl: process.env['ELECTRON_RENDERER_URL'],
+      rendererUrl: isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined,
       expectedHtmlPath: expectedHtmlUrl
     })
     if (!allowed) {
@@ -58,7 +57,7 @@ function createWindow(): void {
     isAllowedOrigin: (url: string) =>
       isAllowedNavigation(url, {
         isDev,
-        rendererUrl: process.env['ELECTRON_RENDERER_URL'],
+        rendererUrl: isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined,
         expectedHtmlPath: expectedHtmlUrl
       })
   })
@@ -68,9 +67,10 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
-  if (rendererUrl) {
-    mainWindow.loadURL(rendererUrl)
+  // Only load dev server in unpackaged development mode; never load ELECTRON_RENDERER_URL in production
+  const devServerUrl = isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined
+  if (devServerUrl) {
+    mainWindow.loadURL(devServerUrl)
   } else {
     mainWindow.loadFile(expectedHtmlPath)
   }
