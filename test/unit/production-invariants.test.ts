@@ -12,7 +12,6 @@ import {
   type DisplayStreams
 } from '../../src/main/capture/mediastream-backend'
 import { DisplayManager, type ScreenLike, type ElectronDisplayLike } from '../../src/main/displays/display-manager'
-import type { DesktopCapturerSourceLike } from '../../src/main/capture/source-resolver'
 import type { CapturedFrame, CaptureTarget, FrameCaptureBackend } from '../../src/shared/contracts/capture'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
