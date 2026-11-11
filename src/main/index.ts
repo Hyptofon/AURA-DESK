@@ -3,8 +3,10 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
 import { isAllowedNavigation } from './security/navigation-guard'
+import { DisplayManager } from './displays/display-manager'
 
 let mainWindow: BrowserWindow | null = null
+let displayManager: DisplayManager | null = null
 
 function createWindow(): void {
   const isDev = Boolean(!app.isPackaged && process.env['ELECTRON_RENDERER_URL'])
@@ -50,20 +52,29 @@ function createWindow(): void {
     }
   })
 
+  displayManager = new DisplayManager()
+  displayManager.ensureListening()
+
   // Register typed IPC handlers bound to authorized window and top frame
-  registerIpcHandlers(undefined, {
-    trustedWebContents: mainWindow.webContents,
-    trustedOrigin: isDev ? (process.env['ELECTRON_RENDERER_URL'] ?? 'http://localhost:5173') : undefined,
-    isAllowedOrigin: (url: string) =>
-      isAllowedNavigation(url, {
-        isDev,
-        rendererUrl: isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined,
-        expectedHtmlPath: expectedHtmlUrl
-      })
-  })
+  registerIpcHandlers(
+    undefined,
+    {
+      trustedWebContents: mainWindow.webContents,
+      trustedOrigin: isDev ? (process.env['ELECTRON_RENDERER_URL'] ?? 'http://localhost:5173') : undefined,
+      isAllowedOrigin: (url: string) =>
+        isAllowedNavigation(url, {
+          isDev,
+          rendererUrl: isDev ? process.env['ELECTRON_RENDERER_URL'] : undefined,
+          expectedHtmlPath: expectedHtmlUrl
+        })
+    },
+    displayManager
+  )
 
   mainWindow.on('closed', () => {
     unregisterIpcHandlers()
+    displayManager?.stopListening()
+    displayManager = null
     mainWindow = null
   })
 
