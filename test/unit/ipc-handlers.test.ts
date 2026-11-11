@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   registerIpcHandlers,
   unregisterIpcHandlers,
@@ -8,7 +8,12 @@ import {
   type IpcInvokeEventLike,
   type FrameLike
 } from '../../src/main/ipc/register-handlers'
-import { IPC_CHANNELS, type IpcResponse } from '../../src/shared/contracts/ipc'
+import {
+  IPC_CHANNELS,
+  type IpcResponse,
+  type DisplayConfiguration
+} from '../../src/shared/contracts/ipc'
+import { DisplayManager } from '../../src/main/displays/display-manager'
 
 class MockIpcMain implements IpcMainLike {
   public handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown> | unknown>()
@@ -43,10 +48,36 @@ describe('Main Process IPC Handlers', () => {
     senderFrame: defaultMainFrame
   })
 
+  const mockScreenApi = {
+    getAllDisplays: () => [
+      {
+        id: 1,
+        label: 'Display 1 (Primary)',
+        bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+        workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+        scaleFactor: 1.0,
+        rotation: 0
+      }
+    ],
+    getPrimaryDisplay: () => ({
+      id: 1,
+      label: 'Display 1 (Primary)',
+      bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+      workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+      scaleFactor: 1.0,
+      rotation: 0
+    }),
+    on: vi.fn(),
+    removeListener: vi.fn()
+  }
+
+  let defaultDisplayManager: DisplayManager
+
   beforeEach(() => {
     mockIpc = new MockIpcMain()
     setSessionStatus('idle')
-    registerIpcHandlers(mockIpc, defaultContext)
+    defaultDisplayManager = new DisplayManager(mockScreenApi as never)
+    registerIpcHandlers(mockIpc, defaultContext, defaultDisplayManager)
   })
 
   it('fails closed and throws error if registered without authorization context', () => {
@@ -60,6 +91,59 @@ describe('Main Process IPC Handlers', () => {
     expect(mockIpc.handlers.has(IPC_CHANNELS.APP_GET_INFO)).toBe(true)
     expect(mockIpc.handlers.has(IPC_CHANNELS.SESSION_GET_STATE)).toBe(true)
     expect(mockIpc.handlers.has(IPC_CHANNELS.SESSION_SET_SELECTION)).toBe(true)
+    expect(mockIpc.handlers.has(IPC_CHANNELS.DISPLAYS_GET_ALL)).toBe(true)
+  })
+
+  it('handles DISPLAYS_GET_ALL and returns valid display configuration when event is valid', async () => {
+    const handler = mockIpc.handlers.get(IPC_CHANNELS.DISPLAYS_GET_ALL)!
+    const res = (await handler(makeValidEvent())) as IpcResponse<DisplayConfiguration>
+
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(Array.isArray(res.data.displays)).toBe(true)
+      expect(typeof res.data.primaryId).toBe('string')
+      expect(typeof res.data.count).toBe('number')
+      expect(typeof res.data.isMultiDisplay).toBe('boolean')
+    }
+  })
+
+  it('uses custom display manager instance when provided to registerIpcHandlers', async () => {
+    const mockScreen = {
+      getAllDisplays: () => [
+        {
+          id: 42,
+          label: 'Primary Test Screen',
+          bounds: { x: 0, y: 0, width: 2560, height: 1440 },
+          workArea: { x: 0, y: 0, width: 2560, height: 1400 },
+          scaleFactor: 1.25,
+          rotation: 0
+        }
+      ],
+      getPrimaryDisplay: () => ({
+        id: 42,
+        label: 'Primary Test Screen',
+        bounds: { x: 0, y: 0, width: 2560, height: 1440 },
+        workArea: { x: 0, y: 0, width: 2560, height: 1400 },
+        scaleFactor: 1.25,
+        rotation: 0
+      }),
+      on: vi.fn(),
+      removeListener: vi.fn()
+    }
+    const customManager = new DisplayManager(mockScreen as never)
+    const customIpc = new MockIpcMain()
+    registerIpcHandlers(customIpc, defaultContext, customManager)
+
+    const handler = customIpc.handlers.get(IPC_CHANNELS.DISPLAYS_GET_ALL)!
+    const res = (await handler(makeValidEvent())) as IpcResponse<DisplayConfiguration>
+
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.data.count).toBe(1)
+      expect(res.data.primaryId).toBe('42')
+      expect(res.data.displays[0].id).toBe('42')
+      expect(res.data.displays[0].bounds.width).toBe(2560)
+    }
   })
 
   it('handles APP_GET_INFO and returns valid metadata when event is valid', async () => {
