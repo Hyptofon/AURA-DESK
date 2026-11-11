@@ -426,6 +426,72 @@ describe('Main Process IPC Handlers', () => {
       }
     })
 
+    it('fails closed and returns error if capturer.start() does not reach active state', async () => {
+      let mockStatus = 'idle'
+      const customCapturer: ScreenCapturePort = {
+        start: vi.fn().mockImplementation(async () => {
+          mockStatus = 'idle'
+        }),
+        stop: vi.fn().mockImplementation(async () => {
+          mockStatus = 'idle'
+        }),
+        getStatus: () => mockStatus as SessionStatus,
+        getLastError: () => null,
+        onStatusChange: () => () => {},
+        getLatestFrame: () => null,
+        getFrameHistory: () => [],
+        getBufferStats: () => ({ frameCount: 0, totalBytes: 0, oldestTimestamp: null, newestTimestamp: null, displayId: null }),
+        isActive: () => mockStatus === 'active',
+        getActiveDisplayId: () => null
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(customIpc, { trustedWebContents: defaultWebContents }, undefined, customCapturer)
+
+      const startHandler = customIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await startHandler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('CAPTURE_START_ABORTED')
+        expect(res.error.message).toContain('did not reach active state')
+      }
+    })
+
+    it('properly awaits asynchronous stop before returning response', async () => {
+      let stopAwaited = false
+      const customCapturer: ScreenCapturePort = {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockImplementation(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          stopAwaited = true
+        }),
+        getStatus: () => 'idle',
+        getLastError: () => null,
+        onStatusChange: () => () => {},
+        getLatestFrame: () => null,
+        getFrameHistory: () => [],
+        getBufferStats: () => ({ frameCount: 0, totalBytes: 0, oldestTimestamp: null, newestTimestamp: null, displayId: null }),
+        isActive: () => false,
+        getActiveDisplayId: () => null
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(customIpc, { trustedWebContents: defaultWebContents }, undefined, customCapturer)
+
+      const stopHandler = customIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+      const res = (await stopHandler(makeValidEvent())) as IpcResponse<{ success: boolean; status: string }>
+
+      expect(stopAwaited).toBe(true)
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.data.success).toBe(true)
+        expect(res.data.status).toBe('idle')
+      }
+    })
+
     it('forwards SESSION_STATUS_CHANGED event to trusted webContents on unexpected termination', () => {
       const mockWebContentsWithSend = {
         id: 1,
