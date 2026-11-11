@@ -7,6 +7,9 @@ export const IPC_CHANNELS = {
   APP_GET_INFO: 'aura:app-get-info',
   SESSION_GET_STATE: 'aura:session-get-state',
   SESSION_SET_SELECTION: 'aura:session-set-selection',
+  SESSION_START: 'aura:session-start',
+  SESSION_STOP: 'aura:session-stop',
+  SESSION_STATUS_CHANGED: 'aura:session-status-changed',
   DISPLAYS_GET_ALL: 'aura:displays-get-all',
   DISPLAYS_CHANGED: 'aura:displays-changed'
 } as const
