@@ -6,11 +6,7 @@ export interface DesktopCapturerSourceLike {
   display_id?: string
 }
 
-export type SourceResolutionStrategy =
-  | 'display_id_match'
-  | 'id_pattern_match'
-  | 'screen_index_match'
-  | 'label_match'
+export type SourceResolutionStrategy = 'exact_display_id_match'
 
 export interface ResolvedSourceResult {
   sourceId: string
@@ -21,14 +17,22 @@ export interface ResolvedSourceResult {
 
 /**
  * Resolves a DesktopCapturerSource for an explicit DisplayInfo.
- * Evaluates candidates using prioritized matching strategies.
- * Fails closed if display is not found, sources are empty, or matches are ambiguous.
+ * Strictly requires an exact match on DesktopCapturerSource.display_id.
+ * Unsafe fallbacks (screen index, name/label matching, pattern guessing) are strictly forbidden
+ * to prevent cross-display capture leakage.
+ *
+ * Fails closed if the display is not found, sources are empty, display_id is missing,
+ * duplicates exist, or mapping is ambiguous.
  */
 export function resolveSourceForDisplay(
   targetDisplayId: string,
   allDisplays: DisplayInfo[],
   sources: DesktopCapturerSourceLike[]
 ): ResolvedSourceResult {
+  if (!targetDisplayId || typeof targetDisplayId !== 'string') {
+    throw new Error('Cannot resolve capture source: targetDisplayId must be a non-empty string')
+  }
+
   const targetDisplay = allDisplays.find((d) => d.id === targetDisplayId)
   if (!targetDisplay) {
     throw new Error(
@@ -40,69 +44,31 @@ export function resolveSourceForDisplay(
     throw new Error('Cannot resolve capture source: no desktopCapturer sources available')
   }
 
-  // Strategy 1: Exact display_id match
+  // Exact display_id match only
   const displayIdMatches = sources.filter(
-    (s) => s.display_id !== undefined && String(s.display_id) === targetDisplayId
+    (s) =>
+      s.display_id !== undefined &&
+      s.display_id !== null &&
+      String(s.display_id).trim() === targetDisplayId
   )
+
   if (displayIdMatches.length === 1) {
     return {
       sourceId: displayIdMatches[0].id,
       sourceName: displayIdMatches[0].name,
       displayId: targetDisplayId,
-      strategy: 'display_id_match'
+      strategy: 'exact_display_id_match'
     }
   }
+
   if (displayIdMatches.length > 1) {
     throw new Error(
       `Ambiguous capture source: multiple sources matched display_id "${targetDisplayId}"`
     )
   }
 
-  // Strategy 2: ID pattern match (source.id === targetDisplayId or `screen:${targetDisplayId}:0`)
-  const patternMatches = sources.filter(
-    (s) => s.id === targetDisplayId || s.id === `screen:${targetDisplayId}:0`
-  )
-  if (patternMatches.length === 1) {
-    return {
-      sourceId: patternMatches[0].id,
-      sourceName: patternMatches[0].name,
-      displayId: targetDisplayId,
-      strategy: 'id_pattern_match'
-    }
-  }
-
-  // Strategy 3: Screen index match (source.id === `screen:${targetIndex}:0`)
-  const targetIndex = allDisplays.findIndex((d) => d.id === targetDisplayId)
-  if (targetIndex >= 0) {
-    const indexMatches = sources.filter((s) => s.id === `screen:${targetIndex}:0`)
-    if (indexMatches.length === 1) {
-      return {
-        sourceId: indexMatches[0].id,
-        sourceName: indexMatches[0].name,
-        displayId: targetDisplayId,
-        strategy: 'screen_index_match'
-      }
-    }
-  }
-
-  // Strategy 4: Label / Name match
-  if (targetDisplay.label && targetDisplay.label.trim()) {
-    const targetLabel = targetDisplay.label.trim().toLowerCase()
-    const nameMatches = sources.filter(
-      (s) => s.name && s.name.trim().toLowerCase() === targetLabel
-    )
-    if (nameMatches.length === 1) {
-      return {
-        sourceId: nameMatches[0].id,
-        sourceName: nameMatches[0].name,
-        displayId: targetDisplayId,
-        strategy: 'label_match'
-      }
-    }
-  }
-
-  // Fail-closed
+  // Fail-closed: No fallback to index, label or screen:index:0 pattern
   throw new Error(
-    `Cannot resolve capture source for display "${targetDisplayId}": no matching desktopCapturer source found`
+    `Cannot resolve capture source for display "${targetDisplayId}": no desktopCapturer source with matching display_id found (unsafe index/name fallbacks are prohibited)`
   )
 }
