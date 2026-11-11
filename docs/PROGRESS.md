@@ -33,6 +33,7 @@
   * Skill Governance: updated `.agents/skills/screen-capture/SKILL.md` with explicit rules for real consumer connection, narrow typed IPC bridge, mandatory unsubscribe, comprehensive deduplication, and distinction between mock tests and physical hardware reality.
   * Host Hardware Verification: host machine verified with two physical 1080p monitors (`DISPLAY1` primary at 0,0, `DISPLAY2` secondary at -1920,1) via .NET Windows.Forms enumeration.
   * Unit & Contract Tests: 108 tests total across 6 test suites passing green (`display-manager.test.ts` [20], `ipc-contracts.test.ts` [26], `ipc-handlers.test.ts` [28], `navigation-guard.test.ts` [17], `preload-api.test.ts` [13], `App.test.tsx` [4]).
+- External AI & Codex Review Policy Governance: permanently banned autonomous Codex review triggers (`@codex review`), Codex Cloud tasks, and paid external AI reviews across `AGENTS.md`, `docs/DEVELOPMENT_WORKFLOW.md`, and `.agents/skills/code-review/SKILL.md`. Formalized that independent code review is conducted exclusively by ChatGPT in standard conversational chat initiated by the user.
 
 ## Latest evidence
 
