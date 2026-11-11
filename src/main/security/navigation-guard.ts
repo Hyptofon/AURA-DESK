@@ -33,7 +33,12 @@ export function isAllowedNavigation(
 
     const expected = new URL(options.expectedHtmlPath)
     const normalizePath = (p: string): string => decodeURIComponent(p).toLowerCase().replace(/\\/g, '/')
-    return normalizePath(parsed.pathname) === normalizePath(expected.pathname)
+    const normalizeHost = (h: string): string => h.toLowerCase()
+
+    return (
+      normalizeHost(parsed.hostname) === normalizeHost(expected.hostname) &&
+      normalizePath(parsed.pathname) === normalizePath(expected.pathname)
+    )
   } catch {
     return false
   }
