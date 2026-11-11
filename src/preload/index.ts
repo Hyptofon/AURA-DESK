@@ -4,6 +4,7 @@ import {
   type AppInfo,
   type CaptureSelection,
   type SessionStatus,
+  type DisplayConfiguration,
   type IpcResponse
 } from '../shared/contracts/channels'
 
@@ -15,6 +16,7 @@ export interface AuraApi {
   setCaptureSelection(
     selection: CaptureSelection
   ): Promise<{ success: boolean; selection: CaptureSelection }>
+  getDisplays?(): Promise<DisplayConfiguration>
 }
 
 /**
@@ -41,7 +43,8 @@ export const auraApi: AuraApi = {
     invokeChannel<{ success: boolean; selection: CaptureSelection }>(
       IPC_CHANNELS.SESSION_SET_SELECTION,
       selection
-    )
+    ),
+  getDisplays: () => invokeChannel<DisplayConfiguration>(IPC_CHANNELS.DISPLAYS_GET_ALL)
 }
 
 /**
