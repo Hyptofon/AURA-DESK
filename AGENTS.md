@@ -5,7 +5,7 @@
 ## Read first, then act
 
 1. Read `docs/PRODUCT_SPEC.md`, `docs/ARCHITECTURE.md`, `DESIGN.md` as applicable.
-2. Before each task inspect `docs/ROADMAP.md`, `docs/PROGRESS.md`, nearest relevant code/tests, and current `git status --short`.
+2. Before each task inspect `docs/ROADMAP.md`, `docs/PROGRESS.md`, nearest relevant code/tests, current `git status --short`, and consult `docs/ENGINEERING_LESSONS.md` to prevent repeating known architectural, privacy, or lifecycle defects.
 3. Announce a concise plan with task ID, files, dependencies, tests, and risks. Do not silently broaden scope.
 4. Select appropriate `.agents/skills/<name>/SKILL.md`; use as a workflow, not as a replacement for this file.
 5. Follow strict **1 FILE = 1 COMMIT** policy from `.agents/rules/git-discipline.md`. No exceptions for scaffolding, code/tests, formatting, documentation, generated files. Do not bypass hooks.
