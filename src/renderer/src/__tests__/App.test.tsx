@@ -6,7 +6,15 @@ describe('<App /> Component', () => {
   beforeEach(() => {
     window.api = {
       platform: 'win32',
-      version: '0.1.0'
+      version: '0.1.0',
+      getAppInfo: async () => ({
+        name: 'aura-desk',
+        version: '0.1.0',
+        platform: 'win32',
+        isPackaged: false
+      }),
+      getSessionState: async () => ({ status: 'idle' }),
+      setCaptureSelection: async (selection) => ({ success: true, selection })
     }
   })
 
