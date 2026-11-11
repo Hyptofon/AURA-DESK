@@ -38,13 +38,19 @@ git show --stat --oneline HEAD
    - Evaluated by dedicated criteria in `scripts/verify-one-file-history.py`.
    - Exactly two parents (`len(parents) == 2`).
    - Octopus merges (`len(parents) > 2`) are strictly rejected.
-   - Must follow documented PR merge conventions (`Merge pull request #<num>...` or `Merge branch '<name>'...`). Arbitrary messages (e.g. `Merge arbitrary changes`) are strictly rejected.
+   - Must strictly follow documented GitHub PR merge conventions (`Merge pull request #<num>...`). Local branch merge messages (`Merge branch '...'`) and arbitrary messages (`Merge arbitrary changes`) are strictly rejected because repository policy mandates that integration into `main` occurs solely via GitHub Pull Requests.
 3. **Structural validity vs. approval:**
    - A conforming merge commit subject proves only structural compliance with Git/GitHub conventions; it does NOT prove independent code review or user authorization.
    - Actual approval requires completed independent review (ChatGPT) and explicit user permission prior to merge.
 4. **Validator resilience & regression testing:**
    - History validation tools must handle invalid or missing Git revisions gracefully, returning uniform `(passed, issues, summary)` tuples and exiting with non-zero exit codes without unhandled exceptions (`ValueError`).
-   - Positive and negative regression tests in `scripts/test-verify-one-file-history.py` are mandatory for all structural commit patterns (single-file, multi-file, 2-parent PR merge, octopus merge, invalid merge subjects, and invalid git revisions).
+   - Positive and negative regression tests in `scripts/test-verify-one-file-history.py` are mandatory for all structural commit patterns (single-file, multi-file, 2-parent PR merge, octopus merge, arbitrary merge subjects, local branch merges, and invalid git revisions).
+
+## SHA Accuracy & Evidence Integrity
+1. **Zero tolerance for hallucinated SHAs:** Full 40-character commit hashes must be obtained directly from Git commands (`git rev-parse HEAD`, `git log -1 --format=%H <ref>`) or the GitHub API.
+2. **Never reconstruct SHAs:** Never synthesize, invent, or guess the tail of a 40-character SHA from a short 7-character prefix.
+3. **Pre-reporting verification:** Before embedding commit URLs or hashes in reports, verify existence via `git cat-file -e <sha>`.
+4. **Honest reporting:** If a full SHA cannot be programmatically verified, report the short hash without generating a full-length link or clearly state the status instead of fabricating evidence.
 
 ## Known Tradeoff
 One logical feature requiring several files becomes multiple **one-file** commits; partial intermediate states may not build. Work on a short-lived feature branch; do not claim every intermediate commit is release-ready. Check builds at task completion and before merge, keeping contracts compatible where feasible.
@@ -53,6 +59,6 @@ One logical feature requiring several files becomes multiple **one-file** commit
 Before reporting, run:
 ```bash
 py -3 scripts/verify-one-file-history.py 30
-git log -n 12 --name-only --pretty=format:'%h %s'
+git log -n 12 --name-only --pretty=format:'%h %H %s'
 ```
-Verify exactly one changed path per new regular commit and provide SHA/path mapping in the report.
+Verify exactly one changed path per new regular commit and verify that every referenced SHA resolves via `git cat-file -e <sha>` before reporting.
