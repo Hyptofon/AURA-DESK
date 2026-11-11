@@ -152,6 +152,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     }
 
     const currentGen = ++this.sessionGeneration
+    this.status = 'starting'
     this.setStatus('starting')
 
     try {
