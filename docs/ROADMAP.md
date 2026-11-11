@@ -12,7 +12,7 @@
 ## Milestone M1 — Real Windows capture spike (critical)
 
 - [x] **P1.1** Enumerate two monitors, stable IDs, resolutions and hotplug notification.
-- [ ] **P1.2** Capture Single display only; validate no leakage from other physical display (IN REVIEW: PR #4 review fixes applied; 165 tests pass across 10 suites, deterministic production invariants gate active, metadata 0x0 enumeration, strict display_id mapping, race cancellation tokens, status synchronization, hard memory limits; physical Windows capture: NEEDS MANUAL TEST).
+- [ ] **P1.2** Capture Single display only; validate no leakage from other physical display (IN REVIEW: PR #4 review fixes applied; 176 tests pass across 10 suites, source-specific MediaStream backend active, behavioral security gate verified, metadata 0x0 enumeration, strict display_id mapping, race cancellation tokens, status synchronization, hard memory limits; physical Windows capture: NEEDS MANUAL TEST).
 - [ ] **P1.3** Capture two displays simultaneously; timestamps, bounded memory and stop tracks.
 - [ ] **P1.4** Verify overlay exclusion / screen recursion, Windows DPI scaling.
 - [ ] **GATE-1** Demonstrate real Windows 2-monitor capture. If fail, revise architecture ADR and Stop; do not proceed as if functional.
