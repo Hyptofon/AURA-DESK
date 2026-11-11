@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# One-file change must also have a scoped conventional commit subject.
+set -euo pipefail
+message_file=${1:?missing commit message filename}
+subject=$(head -n 1 "$message_file" | tr -d '\r')
+pattern='^(feat|fix|refactor|test|docs|chore|build|style|perf|ci)\([a-zA-Z0-9._-]+\):[[:space:]]+.+$'
+if [[ ! "$subject" =~ $pattern ]]; then
+  echo >&2 "ERROR: commit subject must be: type(scope): meaningful action"
+  echo >&2 "Example: feat(capture): enumerate physical displays"
+  echo >&2 "Actual: $subject"
+  exit 1
+fi
