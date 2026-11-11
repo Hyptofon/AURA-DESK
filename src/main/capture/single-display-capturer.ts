@@ -1,7 +1,6 @@
 import { desktopCapturer } from 'electron'
 import type {
   CapturedFrame,
-  CaptureTarget,
   FrameBufferOptions,
   FrameBufferStats,
   FrameCaptureBackend,
@@ -10,6 +9,7 @@ import type {
 import type { DisplayBounds, SessionStatus } from '../../shared/contracts/channels'
 import type { DisplayManager } from '../displays/display-manager'
 import { FrameRingBuffer } from './frame-buffer'
+import { MediaStreamDisplayCaptureBackend } from './mediastream-backend'
 import {
   resolveSourceForDisplay,
   type DesktopCapturerSourceLike
@@ -32,60 +32,6 @@ export interface SingleDisplayCapturerOptions extends FrameBufferOptions {
 const DEFAULT_SAMPLE_INTERVAL_MS = 2000 // 2 seconds per spec FR-02
 
 /**
- * Default production frame capture backend using Electron desktopCapturer NativeImage thumbnails.
- * Extracts genuine PNG binary image data and real monitor pixel dimensions.
- *
- * Privacy / Architecture Note:
- * When using desktopCapturer for frame capture, Electron's underlying Chromium engine generates
- * thumbnails for all screens at the OS level. For strict zero-cross-display OS-level isolation,
- * a dedicated MediaStream (WebRTC) or Windows Desktop Duplication API helper should be used.
- */
-export class ElectronDesktopCapturerBackend implements FrameCaptureBackend {
-  private readonly capturerApi: DesktopCapturerLike
-
-  constructor(capturerApi: DesktopCapturerLike = desktopCapturer) {
-    this.capturerApi = capturerApi
-  }
-
-  public async captureFrame(target: CaptureTarget): Promise<CapturedFrame> {
-    const width = target.bounds?.width ?? 1280
-    const height = target.bounds?.height ?? 720
-
-    const sources = await this.capturerApi.getSources({
-      types: ['screen'],
-      thumbnailSize: { width, height },
-      fetchWindowIcons: false
-    })
-
-    const targetSource = sources.find((s) => s.id === target.sourceId)
-    if (!targetSource) {
-      throw new Error(`Target capture source "${target.sourceId}" was not found`)
-    }
-
-    // Source thumbnail is an Electron NativeImage
-    const thumbnail = (targetSource as { thumbnail?: { toPNG(): Buffer; getSize(): { width: number; height: number }; isEmpty(): boolean } }).thumbnail
-
-    if (!thumbnail || thumbnail.isEmpty()) {
-      throw new Error(`Target capture source "${target.sourceId}" has an empty or uninitialized thumbnail`)
-    }
-
-    const pngBuffer = thumbnail.toPNG()
-    const size = thumbnail.getSize()
-    const data = new Uint8Array(pngBuffer)
-
-    return {
-      displayId: target.displayId,
-      timestamp: Date.now(),
-      bounds: target.bounds ?? { x: 0, y: 0, width: size.width, height: size.height },
-      data,
-      byteLength: data.byteLength,
-      format: 'png',
-      hash: `desktop-${target.displayId}-${Date.now()}`
-    }
-  }
-}
-
-/**
  * Single Display Capturer.
  * Non-negotiable Invariants:
  * 1. Only the explicitly selected display is captured.
@@ -93,6 +39,7 @@ export class ElectronDesktopCapturerBackend implements FrameCaptureBackend {
  * 3. On disconnect or ID loss, capture aborts immediately with no fallback to primary.
  * 4. In-flight async operations are cancelled via session generation tokens on Stop/hotplug/restart.
  * 5. Lifecycle state is authoritative and synchronized with listeners (single source of truth).
+ * 6. Overlapping capture operations are prevented via in-flight capture lock.
  */
 export class SingleDisplayCapturer implements ScreenCapturePort {
   private status: SessionStatus = 'idle'
@@ -103,6 +50,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
   private sampleTimer: ReturnType<typeof setInterval> | null = null
   private unsubscribeDisplayManager: (() => void) | null = null
   private lastError: string | null = null
+  private isCapturing = false
   private readonly statusListeners = new Set<(status: SessionStatus, error?: string) => void>()
 
   private readonly buffer: FrameRingBuffer
@@ -119,7 +67,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     this.buffer = new FrameRingBuffer(options)
     this.sampleIntervalMs = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS
     this.capturerApi = options.capturerApi ?? desktopCapturer
-    this.backend = options.backend ?? new ElectronDesktopCapturerBackend(this.capturerApi)
+    this.backend = options.backend ?? new MediaStreamDisplayCaptureBackend()
   }
 
   /**
@@ -174,7 +122,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
 
       // Check if session was stopped or invalidated while getSources() was pending
       if (this.sessionGeneration !== currentGen || this.status !== 'starting') {
-        return
+        throw new Error('Capture start was cancelled or superseded before becoming active')
       }
 
       // 3. Resolve mapping using strict exact display_id matching only
@@ -187,7 +135,22 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
       // 4. Bind buffer to the selected display (enforces hard single-display isolation)
       this.buffer.bindDisplay(trimmedId)
 
-      // 5. Listen to display configuration changes (hotplug and loss detection)
+      // 5. Initialize backend for selected source
+      if (this.backend.start) {
+        await this.backend.start({
+          sourceId: this.resolvedSourceId,
+          displayId: trimmedId,
+          bounds: this.activeDisplayBounds,
+          sourceName: resolved.sourceName
+        })
+      }
+
+      // Check if session was stopped or invalidated while backend.start was pending
+      if (this.sessionGeneration !== currentGen || this.status !== 'starting') {
+        throw new Error('Capture start was cancelled or superseded before becoming active')
+      }
+
+      // 6. Listen to display configuration changes (hotplug and loss detection)
       this.unsubscribeDisplayManager = this.displayManager.addListener((newConfig) => {
         if (this.sessionGeneration !== currentGen || this.status !== 'active') {
           return
@@ -199,15 +162,15 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
         }
       })
 
-      // 6. Take an immediate sample before scheduling interval
+      // 7. Take an immediate sample before scheduling interval
       await this.captureSample(currentGen, true)
 
       // Check if session was stopped or invalidated while initial sample was pending
       if (this.sessionGeneration !== currentGen || this.status !== 'starting') {
-        return
+        throw new Error('Capture start was cancelled or superseded before becoming active')
       }
 
-      // 7. Transition to active state
+      // 8. Transition to active state
       this.setStatus('active')
 
       // Schedule subsequent sample interval
@@ -219,7 +182,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     } catch (err: unknown) {
       if (this.sessionGeneration === currentGen) {
         const errorMsg = err instanceof Error ? err.message : String(err)
-        this.stopSync('error', errorMsg)
+        await this.stopAsync('error', errorMsg)
       }
       throw err
     }
@@ -230,7 +193,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
    * Completely idempotent and safe against repeated calls.
    */
   public async stop(): Promise<void> {
-    this.stopSync('idle')
+    await this.stopAsync('idle')
   }
 
   public getStatus(): SessionStatus {
@@ -274,6 +237,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
 
   private async captureSample(expectedGen: number, rethrow = false): Promise<void> {
     if (
+      this.isCapturing ||
       this.sessionGeneration !== expectedGen ||
       (this.status !== 'starting' && this.status !== 'active') ||
       !this.activeDisplayId ||
@@ -282,6 +246,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
       return
     }
 
+    this.isCapturing = true
     const targetId = this.activeDisplayId
     const sourceId = this.resolvedSourceId
     const bounds = this.activeDisplayBounds
@@ -324,15 +289,17 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
       if (rethrow) {
         throw err
       }
+    } finally {
+      this.isCapturing = false
     }
   }
 
   private handleAbruptTermination(code: string, message?: string): void {
     const errorText = message ? `${code}: ${message}` : code
-    this.stopSync('error', errorText)
+    void this.stopAsync('error', errorText)
   }
 
-  private stopSync(finalStatus: SessionStatus = 'idle', error?: string): void {
+  private async stopAsync(finalStatus: SessionStatus = 'idle', error?: string): Promise<void> {
     // Invalidate in-flight capture operations
     this.sessionGeneration++
 
@@ -346,20 +313,30 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
       this.unsubscribeDisplayManager = null
     }
 
+    // Idempotent check: if already idle and finalStatus is idle, return
+    if (this.status === 'idle' && finalStatus === 'idle') {
+      return
+    }
+
+    if (finalStatus === 'idle') {
+      this.setStatus('stopping')
+    }
+
+    // Await asynchronous backend teardown
+    if (this.backend.stop) {
+      try {
+        await this.backend.stop()
+      } catch (err) {
+        console.error('Error stopping capture backend:', err)
+      }
+    }
+
     // Flush all frame memory immediately
     this.buffer.clear()
 
     this.activeDisplayId = null
     this.resolvedSourceId = null
     this.activeDisplayBounds = undefined
-
-    if (this.backend.stop) {
-      try {
-        void this.backend.stop()
-      } catch (err) {
-        console.error('Error stopping capture backend:', err)
-      }
-    }
 
     this.setStatus(finalStatus, error)
   }
