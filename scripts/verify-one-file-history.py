@@ -7,14 +7,11 @@ import re
 import subprocess
 import sys
 
-# Pattern for structurally valid merge commits created by GitHub PR merges or standard branch merges.
+# Pattern for structurally valid merge commits created strictly via GitHub PR merges.
+# Local branch merges (e.g. "Merge branch '...'") are forbidden because workflow mandates PR merges only.
 # NOTE: Structural validity does NOT equal user authorization or independent review approval.
 # Actual approval must be confirmed through the PR review procedure and explicit user consent.
-MERGE_SUBJECT_PATTERN = (
-    r"^(Merge pull request #\d+(?: from [A-Za-z0-9_\-./]+)?(?:\s+into\s+[A-Za-z0-9_\-./]+)?|"
-    r"Merge branch '[^']+'(?:\s+into\s+[^'\s]+)?|"
-    r"Merge remote-tracking branch '[^']+'(?:\s+into\s+[^'\s]+)?)$"
-)
+MERGE_SUBJECT_PATTERN = r"^Merge pull request #\d+(?: from [A-Za-z0-9_\-./]+)?(?:\s+into\s+[A-Za-z0-9_\-./]+)?$"
 
 
 def audit_history(n=30, rev="HEAD", git_dir=None):
