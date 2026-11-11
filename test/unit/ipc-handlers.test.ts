@@ -251,6 +251,110 @@ describe('Main Process IPC Handlers', () => {
     })
   })
 
+  describe('SESSION_START and SESSION_STOP IPC Handlers', () => {
+    let mockCapturer: {
+      start: ReturnType<typeof vi.fn>
+      stop: ReturnType<typeof vi.fn>
+      isActive: ReturnType<typeof vi.fn>
+      getActiveDisplayId: ReturnType<typeof vi.fn>
+    }
+
+    beforeEach(() => {
+      mockCapturer = {
+        start: vi.fn().mockImplementation(async (id: string) => {
+          if (id === 'error-id') throw new Error('Display not found')
+        }),
+        stop: vi.fn().mockResolvedValue(undefined),
+        isActive: vi.fn().mockReturnValue(false),
+        getActiveDisplayId: vi.fn().mockReturnValue(null)
+      }
+
+      registerIpcHandlers(
+        mockIpc,
+        defaultContext,
+        defaultDisplayManager,
+        mockCapturer as never
+      )
+    })
+
+    it('starts single display capture session successfully', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })) as IpcResponse<{ success: boolean; status: string; displayId: string }>
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.data.success).toBe(true)
+        expect(res.data.status).toBe('active')
+        expect(res.data.displayId).toBe('101')
+      }
+      expect(mockCapturer.start).toHaveBeenCalledWith('101')
+    })
+
+    it('rejects mode both with UNSUPPORTED_MODE for milestone P1.2', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler(makeValidEvent(), {
+        selection: { mode: 'both' }
+      })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNSUPPORTED_MODE')
+        expect(res.error.message).toContain('P1.3')
+      }
+      expect(mockCapturer.start).not.toHaveBeenCalled()
+    })
+
+    it('returns CAPTURE_START_FAILED when capturer fails to start', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: 'error-id' }
+      })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('CAPTURE_START_FAILED')
+        expect(res.error.message).toContain('Display not found')
+      }
+    })
+
+    it('stops active session cleanly and transitions status to idle', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+      const res = (await handler(makeValidEvent())) as IpcResponse<{
+        success: boolean
+        status: string
+      }>
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.data.success).toBe(true)
+        expect(res.data.status).toBe('idle')
+      }
+      expect(mockCapturer.stop).toHaveBeenCalledTimes(1)
+    })
+
+    it('denies SESSION_START when sender is unauthorized', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler({ sender: { id: 999 } })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
+      }
+    })
+
+    it('denies SESSION_STOP when sender is unauthorized', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+      const res = (await handler({ sender: { id: 999 } })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
+      }
+    })
+  })
+
   describe('Fail-Closed Sender and Frame Authorization', () => {
     const untrustedWebContents = { id: 99, name: 'evil-webcontents' }
 
