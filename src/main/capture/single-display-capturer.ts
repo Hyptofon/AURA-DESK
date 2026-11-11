@@ -199,7 +199,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
       })
 
       // 6. Take an immediate sample before scheduling interval
-      await this.captureSample(currentGen)
+      await this.captureSample(currentGen, true)
 
       // Check if session was stopped or invalidated while initial sample was pending
       if (this.sessionGeneration !== currentGen || this.status !== 'starting') {
@@ -271,7 +271,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     return this.buffer.getStats()
   }
 
-  private async captureSample(expectedGen: number): Promise<void> {
+  private async captureSample(expectedGen: number, rethrow = false): Promise<void> {
     if (
       this.sessionGeneration !== expectedGen ||
       (this.status !== 'starting' && this.status !== 'active') ||
@@ -320,6 +320,9 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
       }
       const msg = err instanceof Error ? err.message : String(err)
       this.handleAbruptTermination('SOURCE_DISAPPEARED', msg)
+      if (rethrow) {
+        throw err
+      }
     }
   }
 
