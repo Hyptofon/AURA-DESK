@@ -404,9 +404,20 @@ export function registerIpcHandlers(
       try {
         await capturer.start(currentCaptureSelection.displayId)
 
+        const currentStatus = capturer.getStatus()
+        if (currentStatus !== 'active') {
+          return {
+            ok: false,
+            error: {
+              code: 'CAPTURE_START_ABORTED',
+              message: `Capture start did not reach active state (current status: ${currentStatus})`
+            }
+          }
+        }
+
         const responsePayload = {
           success: true,
-          status: capturer.getStatus(),
+          status: currentStatus,
           displayId: currentCaptureSelection.displayId
         }
         return {
