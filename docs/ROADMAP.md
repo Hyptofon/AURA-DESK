@@ -11,7 +11,7 @@
 
 ## Milestone M1 — Real Windows capture spike (critical)
 
-- [ ] **P1.1** Enumerate two monitors, stable IDs, resolutions and hotplug notification.
+- [ ] **P1.1** Enumerate two monitors, stable IDs, resolutions and hotplug notification (IN REVIEW: PR opened, 80 unit/contract tests pass, dual monitors enumerated on Windows).
 - [ ] **P1.2** Capture Single display only; validate no leakage from other physical display.
 - [ ] **P1.3** Capture two displays simultaneously; timestamps, bounded memory and stop tracks.
 - [ ] **P1.4** Verify overlay exclusion / screen recursion, Windows DPI scaling.
