@@ -54,6 +54,28 @@ describe('IPC Contracts & Schemas', () => {
       expect(result.success).toBe(false)
     })
 
+    it('rejects single mode with whitespace-only displayId', () => {
+      expect(CaptureSelectionSchema.safeParse({ mode: 'single', displayId: '   ' }).success).toBe(false)
+      expect(CaptureSelectionSchema.safeParse({ mode: 'single', displayId: '\t\n ' }).success).toBe(false)
+    })
+
+    it('rejects extra fields on mode both (strict validation)', () => {
+      const result = CaptureSelectionSchema.safeParse({
+        mode: 'both',
+        unauthorizedField: 'malicious'
+      })
+      expect(result.success).toBe(false)
+    })
+
+    it('rejects extra fields on mode single (strict validation)', () => {
+      const result = CaptureSelectionSchema.safeParse({
+        mode: 'single',
+        displayId: 'display-1',
+        extraField: true
+      })
+      expect(result.success).toBe(false)
+    })
+
     it('rejects invalid or unauthorized modes', () => {
       expect(CaptureSelectionSchema.safeParse({ mode: 'window' }).success).toBe(false)
       expect(CaptureSelectionSchema.safeParse({ mode: 'all' }).success).toBe(false)
@@ -92,6 +114,17 @@ describe('IPC Contracts & Schemas', () => {
         isPackaged: false
       })
       expect(result.success).toBe(true)
+    })
+
+    it('rejects extra fields on AppInfo (strict validation)', () => {
+      const result = AppInfoSchema.safeParse({
+        name: 'aura-desk',
+        version: '0.1.0',
+        platform: 'win32',
+        isPackaged: false,
+        extraSecret: 'leak'
+      })
+      expect(result.success).toBe(false)
     })
 
     it('rejects non-semver version strings', () => {
