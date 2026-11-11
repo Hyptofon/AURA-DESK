@@ -1,10 +1,16 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'node:path'
-import { registerIpcHandlers } from './ipc/register-handlers'
+import { pathToFileURL } from 'node:url'
+import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
+import { isAllowedNavigation, safeOpenExternal } from './security/navigation-guard'
 
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  const isDev = Boolean(!app.isPackaged && process.env['ELECTRON_RENDERER_URL'])
+  const expectedHtmlPath = join(__dirname, '../renderer/index.html')
+  const expectedHtmlUrl = pathToFileURL(expectedHtmlPath).href
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -27,29 +33,50 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
+  // Deny new window creation by default, safely open verified HTTPS URLs in default external browser
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    void safeOpenExternal(details.url)
     return { action: 'deny' }
   })
 
-  // Prevent navigation outside application
+  // Prevent navigation outside application boundaries
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl)
-    if (parsedUrl.origin !== 'http://localhost:5173' && parsedUrl.protocol !== 'file:') {
+    const allowed = isAllowedNavigation(navigationUrl, {
+      isDev,
+      rendererUrl: process.env['ELECTRON_RENDERER_URL'],
+      expectedHtmlPath: expectedHtmlUrl
+    })
+    if (!allowed) {
       event.preventDefault()
     }
+  })
+
+  // Register typed IPC handlers bound to authorized window and top frame
+  registerIpcHandlers(undefined, {
+    trustedWebContents: mainWindow.webContents,
+    trustedOrigin: isDev ? (process.env['ELECTRON_RENDERER_URL'] ?? 'http://localhost:5173') : undefined,
+    isAllowedOrigin: (url: string) =>
+      isAllowedNavigation(url, {
+        isDev,
+        rendererUrl: process.env['ELECTRON_RENDERER_URL'],
+        expectedHtmlPath: expectedHtmlUrl
+      })
+  })
+
+  mainWindow.on('closed', () => {
+    unregisterIpcHandlers()
+    mainWindow = null
   })
 
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
   if (rendererUrl) {
     mainWindow.loadURL(rendererUrl)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(expectedHtmlPath)
   }
 }
 
 app.whenReady().then(() => {
-  registerIpcHandlers()
   createWindow()
 
   app.on('activate', () => {
