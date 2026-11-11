@@ -26,13 +26,13 @@
 - P0.4 Typed IPC Bridge & Secure BrowserWindow (COMPLETED & MERGED, PR #2): Zod runtime validation at IPC boundary (`CaptureSelectionSchema`, `SessionStatusSchema`, `AppInfoSchema`), strict channel allowlist, main process validated handlers with dispatch gate, typed preload bridge with narrow invoke methods, BrowserWindow security hardening (sandbox, contextIsolation, nodeIntegration: false, webSecurity, navigation controls, window open handler action: 'deny'), and 32 unit/contract tests across 4 test suites passing green.
 - P0.4 Security & Code Review Fixes (MERGED via PR #2): resolved all findings from independent code review (P1 external URL validation, P1 BrowserWindow navigation restriction, P1 fail-closed sender/frame authorization, P2 preload sandboxing with 0 zod imports, P2 schema strengthening, P2 preload bridge unit tests).
 - P1.1 Windows Display Enumeration & Hotplug Lifecycle (IN REVIEW, PR #3):
-  * Contracts (`src/shared/contracts/channels.ts` & `src/shared/contracts/ipc.ts`): added `DISPLAYS_GET_ALL` channel, pure interfaces (`DisplayBounds`, `DisplayInfo`, `DisplayConfiguration`), and strict Zod validation schemas (`DisplayBoundsSchema`, `DisplayInfoSchema`, `DisplayConfigurationSchema`). Added 10 contract tests.
-  * Core Manager (`src/main/displays/display-manager.ts`): implemented `DisplayManager` supporting single/dual/multi-monitor setups, display normalization (converting IDs to string, calculating geometry, workArea, scaleFactor, rotation, primary flag), hotplug event lifecycle (`display-added`, `display-removed`, `display-metrics-changed`) with listener cleanup, event deduplication, and non-mutating `selectedDisplayLost: true` detection when a selected display disconnects without automatic fallback.
-  * IPC Handler (`src/main/ipc/register-handlers.ts`): wired `DISPLAYS_GET_ALL` handler protected by fail-closed sender context validation and Zod output schema validation.
-  * Preload Bridge (`src/preload/index.ts`): exposed typed `getDisplays(): Promise<DisplayConfiguration>` with zero-dependency pure contracts in preload.
-  * Main Process Lifecycle (`src/main/index.ts`): integrated `DisplayManager` initialization and clean teardown upon window close.
-  * Host Hardware Verification: verified target Windows host with two physical 1080p monitors (`DISPLAY1` primary at 0,0, `DISPLAY2` secondary at -1920,1) via .NET Windows.Forms enumeration.
-  * Unit & Contract Tests: 93 tests total across 6 test suites passing green (`display-manager.test.ts` [11], `ipc-contracts.test.ts` [26], `ipc-handlers.test.ts` [25], `navigation-guard.test.ts` [17], `preload-api.test.ts` [10], `App.test.tsx` [4]).
+  * Contracts (`src/shared/contracts/channels.ts` & `src/shared/contracts/ipc.ts`): added `DISPLAYS_GET_ALL` and `DISPLAYS_CHANGED` channels, pure interfaces (`DisplayBounds`, `DisplayInfo`, `DisplayConfiguration`), and strict Zod validation schemas (`DisplayBoundsSchema`, `DisplayInfoSchema`, `DisplayConfigurationSchema`). Added 10 contract tests.
+  * Core Manager (`src/main/displays/display-manager.ts`): implemented `DisplayManager` supporting single/dual/multi-monitor setups, display normalization (converting IDs to string, calculating geometry, workArea, scaleFactor, rotation, primary flag), hotplug event lifecycle (`display-added`, `display-removed`, `display-metrics-changed`) with listener cleanup, deterministic ID sorting, comprehensive deduplication key including `workArea`, `label`, `isPrimary`, and non-mutating `selectedDisplayLost: true` detection when a selected display disconnects without automatic fallback.
+  * Event Forwarder & IPC Handlers (`src/main/displays/display-manager.ts`, `src/main/ipc/register-handlers.ts`, `src/main/index.ts`): implemented `forwardDisplayEvents` validating display configuration against `DisplayConfigurationSchema` before dispatching to `mainWindow.webContents`, suppressing messages if window is destroyed, and cleaning up listeners on window close. Registered `DISPLAYS_GET_ALL` with fail-closed sender context validation.
+  * Preload Bridge (`src/preload/index.ts`): exposed typed `getDisplays(): Promise<DisplayConfiguration>` and `onDisplaysChanged(callback): () => void` returning dedicated unsubscribe cleanup function, keeping preload bundle free of external dependencies (0 zod imports).
+  * Skill Governance: updated `.agents/skills/screen-capture/SKILL.md` with explicit rules for real consumer connection, narrow typed IPC bridge, mandatory unsubscribe, comprehensive deduplication, and distinction between mock tests and physical hardware reality.
+  * Host Hardware Verification: host machine verified with two physical 1080p monitors (`DISPLAY1` primary at 0,0, `DISPLAY2` secondary at -1920,1) via .NET Windows.Forms enumeration.
+  * Unit & Contract Tests: 108 tests total across 6 test suites passing green (`display-manager.test.ts` [20], `ipc-contracts.test.ts` [26], `ipc-handlers.test.ts` [28], `navigation-guard.test.ts` [17], `preload-api.test.ts` [13], `App.test.tsx` [4]).
 
 ## Latest evidence
 
@@ -42,9 +42,20 @@
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (93 tests total across 6 suites: display-manager [11], navigation-guard [17], preload-api [10], ipc-contracts [26], ipc-handlers [25], App.test.tsx [4]).
-- `npm run build`: PASS (electron-vite built main, preload 1.55 kB with 0 zod dependencies, and renderer).
-- Manual Windows check: run `npm run dev` in PowerShell/terminal to observe the desktop window.
+- `npm run test`: PASS (108 tests total across 6 suites: display-manager [20], navigation-guard [17], preload-api [13], ipc-contracts [26], ipc-handlers [28], App.test.tsx [4]).
+- `npm run build`: PASS (electron-vite built main, preload 1.63 kB with 0 zod dependencies, and renderer).
+- Physical dual-monitor configuration: PASS (host verified with two physical 1080p monitors via .NET enumeration).
+- Real Electron physical cable disconnect/reconnect hotplug: NEEDS MANUAL TEST (mock tests verify protocol correctness; manual Windows test procedure documented below).
+
+### Reproducible Windows Manual Test Instructions:
+1. Run `npm run dev` in PowerShell to launch the desktop application.
+2. Open DevTools (`Ctrl+Shift+I`) and inspect `window.api`:
+   - Execute: `await window.api.getDisplays()` → verifies physical displays enumerated with bounds and workArea.
+   - Execute: `const unsub = window.api.onDisplaysChanged(c => console.log('HOTPLUG EVENT:', c))` → subscribes to hotplug stream.
+3. Test metrics/workArea change: resize or move Windows taskbar or change screen scaling in Windows Display Settings. Observe `HOTPLUG EVENT` logged with updated `workArea`.
+4. Test physical hotplug: turn off or disconnect secondary monitor. Observe `HOTPLUG EVENT` logged with `count: 1`, `isMultiDisplay: false`, and `selectedDisplayLost: true` if secondary display was selected.
+5. Reconnect secondary monitor: observe `HOTPLUG EVENT` logged with `count: 2`, `selectedDisplayLost: false`.
+6. Execute `unsub()` to verify cleanup.
 
 ## Next recommended task
 
