@@ -2,10 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockInvoke = vi.fn()
 const mockExposeInMainWorld = vi.fn()
+const mockOn = vi.fn()
+const mockRemoveListener = vi.fn()
 
 vi.mock('electron', () => ({
   ipcRenderer: {
-    invoke: (...args: unknown[]) => mockInvoke(...args)
+    invoke: (...args: unknown[]) => mockInvoke(...args),
+    on: (...args: unknown[]) => mockOn(...args),
+    removeListener: (...args: unknown[]) => mockRemoveListener(...args)
   },
   contextBridge: {
     exposeInMainWorld: (...args: unknown[]) => mockExposeInMainWorld(...args)
@@ -28,6 +32,7 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(typeof auraApi.getSessionState).toBe('function')
       expect(typeof auraApi.setCaptureSelection).toBe('function')
       expect(typeof auraApi.getDisplays).toBe('function')
+      expect(typeof auraApi.onDisplaysChanged).toBe('function')
     })
 
     it('does not expose raw Node or Electron APIs on auraApi', () => {
@@ -113,6 +118,68 @@ describe('Real Preload AuraApi and Context Isolation', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.DISPLAYS_GET_ALL, undefined)
       expect(result).toEqual(mockConfig)
+    })
+
+    describe('onDisplaysChanged subscription and cleanup', () => {
+      it('registers listener on DISPLAYS_CHANGED channel and delivers events to subscriber', () => {
+        const subscriber = vi.fn()
+        const unsubscribe = auraApi.onDisplaysChanged!(subscriber)
+
+        expect(mockOn).toHaveBeenCalledTimes(1)
+        expect(mockOn).toHaveBeenCalledWith(IPC_CHANNELS.DISPLAYS_CHANGED, expect.any(Function))
+
+        const registeredHandler = mockOn.mock.calls[0][1]
+
+        const eventPayload = {
+          displays: [],
+          primaryId: '1',
+          count: 1,
+          isMultiDisplay: false,
+          selectedDisplayLost: true
+        }
+
+        // Simulate IPC event from main process
+        registeredHandler({}, eventPayload)
+
+        expect(subscriber).toHaveBeenCalledTimes(1)
+        expect(subscriber).toHaveBeenCalledWith(eventPayload)
+
+        unsubscribe()
+      })
+
+      it('returns working unsubscribe function that removes the listener from ipcRenderer', () => {
+        const subscriber = vi.fn()
+        const unsubscribe = auraApi.onDisplaysChanged!(subscriber)
+
+        const registeredHandler = mockOn.mock.calls[0][1]
+
+        unsubscribe()
+
+        expect(mockRemoveListener).toHaveBeenCalledTimes(1)
+        expect(mockRemoveListener).toHaveBeenCalledWith(
+          IPC_CHANNELS.DISPLAYS_CHANGED,
+          registeredHandler
+        )
+      })
+
+      it('safely catches errors thrown in subscriber callback without breaking', () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const throwingSubscriber = vi.fn().mockImplementation(() => {
+          throw new Error('Subscriber runtime error')
+        })
+
+        const unsubscribe = auraApi.onDisplaysChanged!(throwingSubscriber)
+        const registeredHandler = mockOn.mock.calls[0][1]
+
+        expect(() => registeredHandler({}, { count: 0 })).not.toThrow()
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Error in onDisplaysChanged callback:',
+          expect.any(Error)
+        )
+
+        consoleErrorSpy.mockRestore()
+        unsubscribe()
+      })
     })
 
     it('throws typed Error when main process returns an error response', async () => {
