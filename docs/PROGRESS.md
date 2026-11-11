@@ -32,6 +32,11 @@
   * P2 CaptureSelectionSchema strengthening (`src/shared/contracts/ipc.ts`): enforced `.strict()` on selection schemas to reject unexpected keys and `z.string().trim().min(1)` to reject whitespace-only display IDs.
   * P2 Real Preload Bridge & Sandboxing tests (`test/unit/preload-api.test.ts`): replaced synthetic local mock with comprehensive tests of the real exported `auraApi`, verifying `ipcRenderer.invoke` calls, error unwrapping, forbidden property isolation, and fail-closed context isolation behavior.
   * Skill Governance updates: enriched `.agents/skills/security-audit/SKILL.md` and `.agents/skills/architecture-design/SKILL.md` with guidelines on safe external URLs, navigation guards, sender/frame authorization, and fail-closed preload boundaries.
+- P0.4 Final Security Review Corrections (IN REVIEW, PR #2): resolved all residual review findings:
+  * P1 Fail-Closed IPC Authorization (`src/main/ipc/register-handlers.ts`): enforced mandatory authorization context for handler registration (throws on missing context); rejected missing event, untrusted sender, missing/null/destroyed `senderFrame`, empty or whitespace `frame.url`, and mismatched `trustedWebContents.mainFrame`; preserved Zod runtime validation; added 7 targeted negative unit test scenarios.
+  * P2 No Automatic External Browser Opening (`src/main/index.ts`): denied new window creation unconditionally (`action: 'deny'`) without calling `shell.openExternal()`; preserved isolated `safeOpenExternal` utility for future user-initiated actions; verified window.open does not open browser.
+  * P2 Exact Production Navigation Boundary (`src/main/security/navigation-guard.ts` & `src/main/index.ts`): enforced strict verification of document scheme (`file:`), hostname (rejecting remote UNC/network hosts even if pathname matches), exact file path, and rejected unexpected query parameters (`?injected=true`) while preserving in-document hash routing; guaranteed `ELECTRON_RENDERER_URL` is never loaded in packaged production builds.
+  * Security Skill Hardening (`.agents/skills/security-audit/SKILL.md`): recorded explicit lessons on fail-closed IPC context, never treating optional frame data as authorized, generic HTTPS validity not equating to user permission, complete document identity verification, and omitted metadata negative tests.
 
 ## Latest evidence
 
@@ -41,7 +46,7 @@
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (61 tests total across 5 suites: navigation-guard, preload-api, ipc-contracts, ipc-handlers, App.test.tsx).
+- `npm run test`: PASS (69 tests total across 5 suites: navigation-guard [17], preload-api [9], ipc-contracts [16], ipc-handlers [23], App.test.tsx [4]).
 - `npm run build`: PASS (electron-vite built main, preload 1.38 kB with 0 zod dependencies, and renderer).
 - Manual Windows check: run `npm run dev` in PowerShell/terminal to observe the desktop window.
 
