@@ -4,10 +4,13 @@ import {
   isAllowedIpcChannel,
   CaptureSelectionSchema,
   AppInfoSchema,
+  DisplayConfigurationSchema,
   type CaptureSelection,
   type SessionStatus,
+  type DisplayConfiguration,
   type IpcResponse
 } from '../../shared/contracts/ipc'
+import { DisplayManager } from '../displays/display-manager'
 
 export interface IpcMainLike {
   handle(
@@ -165,6 +168,7 @@ export function createSenderValidator(
  */
 let currentSessionStatus: SessionStatus = 'idle'
 let currentCaptureSelection: CaptureSelection = { mode: 'both' }
+let activeDisplayManager: DisplayManager | null = null
 
 export function getCurrentSessionStatus(): SessionStatus {
   return currentSessionStatus
@@ -178,6 +182,17 @@ export function getCurrentCaptureSelection(): CaptureSelection {
   return currentCaptureSelection
 }
 
+export function getDisplayManager(): DisplayManager {
+  if (!activeDisplayManager) {
+    activeDisplayManager = new DisplayManager()
+  }
+  return activeDisplayManager
+}
+
+export function setDisplayManager(manager: DisplayManager | null): void {
+  activeDisplayManager = manager
+}
+
 /**
  * Safe IPC Handler registration.
  * Fails closed if authorization context is missing.
@@ -185,7 +200,8 @@ export function getCurrentCaptureSelection(): CaptureSelection {
  */
 export function registerIpcHandlers(
   ipc: IpcMainLike = ipcMain,
-  validatorOrContext?: IpcSenderValidator | IpcSenderValidationContext
+  validatorOrContext?: IpcSenderValidator | IpcSenderValidationContext,
+  displayManager?: DisplayManager
 ): void {
   if (!validatorOrContext) {
     throw new Error(
@@ -200,6 +216,8 @@ export function registerIpcHandlers(
     'validate' in validatorOrContext
       ? validatorOrContext
       : createSenderValidator(validatorOrContext)
+
+  const manager = displayManager ?? getDisplayManager()
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
     const auth = validator.validate(event)
@@ -295,6 +313,39 @@ export function registerIpcHandlers(
           success: true,
           selection: currentCaptureSelection
         }
+      }
+    }
+  )
+
+  ipc.handle(
+    IPC_CHANNELS.DISPLAYS_GET_ALL,
+    async (event: unknown): Promise<IpcResponse<DisplayConfiguration>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      const config = manager.getDisplayConfiguration()
+      const parsed = DisplayConfigurationSchema.safeParse(config)
+      if (!parsed.success) {
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_DISPLAY_CONFIG',
+            message: parsed.error.message
+          }
+        }
+      }
+
+      return {
+        ok: true,
+        data: parsed.data
       }
     }
   )
