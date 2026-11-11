@@ -15,6 +15,7 @@ out/
 build/
 release/
 coverage/
+*.tsbuildinfo
 .playwright/
 playwright-report/
 test-results/
