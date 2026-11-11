@@ -7,30 +7,36 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0/P0.1 minimal shell).
+- [x] Test and lint infrastructure configured and verified green (P0.3).
 - [ ] Any Windows hardware or OpenRouter integration tested.
 - [ ] Product acceptance criteria verified.
 
 ## Current milestone
 
-**M0 — Scaffold and governance** (P0.1 completed and verified).
+**M0 — Scaffold and governance** (P0.1, P0.2, P0.3 completed and verified).
 
 ## Verified deliverables
 
-- Documentation pack: README, specification, architecture, UX/design, privacy, tests, roadmap, agent rules/skills, Git hooks.
-- Git hooks configuration: `.githooks/pre-commit` and `commit-msg` active via `core.hooksPath`.
+- Documentation pack: README, specification, architecture, UX/design, privacy, tests, roadmap, agent rules/skills, Git hooks (P0.2).
+- Git hooks configuration: `.githooks/pre-commit` and `commit-msg` active via `core.hooksPath`; single-file commit policy strictly enforced and tested.
 - P0.1 Skeleton: `electron-vite`, React 18, TypeScript strict, `tsconfig.node.json`, `tsconfig.web.json`, secure Electron main process with sandbox and CSP, preload typed bridge, and Quiet Instrument styled React App.
+- P0.3 Testing & Quality Stack: Vitest, React Testing Library, ESLint 9 flat config, jsdom DOM environment, baseline contract test ([test/unit/preload-api.test.ts](file:///e:/Windows_AI_Copilot/test/unit/preload-api.test.ts)) and UI component test ([src/renderer/src/__tests__/App.test.tsx](file:///e:/Windows_AI_Copilot/src/renderer/src/__tests__/App.test.tsx)).
 
 ## Latest evidence
 
 - `py -3 scripts/validate-blueprint.py`: PASS (18 skills, 5 rules, 12 expected files).
-- `py -3 scripts/verify-one-file-history.py`: PASS (all commits touch exactly 1 file).
+- `py -3 scripts/verify-one-file-history.py 100`: PASS (all commits touch exactly 1 file).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
-- `npm run build`: PASS (electron-vite built main, preload, and renderer successfully in <1s).
+- `npm run lint`: PASS (0 errors, 0 warnings).
+- `npm run test:unit`: PASS (2 tests passed).
+- `npm run test:ui`: PASS (4 tests passed).
+- `npm run test`: PASS (6 tests total).
+- `npm run build`: PASS (electron-vite built main, preload, and renderer successfully).
 - Manual Windows check: run `npm run dev` in PowerShell/terminal to observe the desktop window.
 
 ## Next recommended task
 
-P0.2/P0.3: Unit test stack (Vitest + RTL), linting setup, and committing remaining blueprint files one by one.
+P0.4: Add typed preload/IPC and secure BrowserWindow (validate forbidden IPC channels denied, no Node in renderer, structured IPC schemas).
 
 ## Completed work template (fill after genuine verification)
 
