@@ -5,15 +5,90 @@ import {
   type DisplayMediaRequest,
   type DisplayStreams
 } from '../../src/main/capture/mediastream-backend'
-import { CaptureWindowClient } from '../../src/main/capture/capture-window-client'
+import {
+  CaptureWindowClient,
+  type BrowserWindowLike,
+  type WebContentsLike
+} from '../../src/main/capture/capture-window-client'
 import type { CaptureTarget } from '../../src/shared/contracts/capture'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
+
+class MockCaptureWindow implements BrowserWindowLike {
+  public webContents: WebContentsLike
+  public loadedFiles: string[] = []
+  public destroyed = false
+  public listeners: Record<string, ((...args: unknown[]) => void)[]> = {}
+  public windowOpenHandler?: (details: { url: string }) => { action: 'deny' }
+
+  constructor(mainFrame: unknown, executor: (script: string) => Promise<unknown>) {
+    this.webContents = {
+      mainFrame,
+      executeJavaScript: vi.fn().mockImplementation(executor),
+      setWindowOpenHandler: (handler) => {
+        this.windowOpenHandler = handler
+      },
+      on: (ev, fn) => {
+        if (!this.listeners[ev]) this.listeners[ev] = []
+        this.listeners[ev].push(fn)
+      },
+      removeListener: (ev, fn) => {
+        if (this.listeners[ev]) {
+          this.listeners[ev] = this.listeners[ev].filter((l) => l !== fn)
+        }
+      }
+    }
+  }
+
+  async loadFile(filePath: string): Promise<void> {
+    this.loadedFiles.push(filePath)
+  }
+
+  async loadURL(): Promise<void> {}
+
+  destroy(): void {
+    this.destroyed = true
+  }
+
+  isDestroyed(): boolean {
+    return this.destroyed
+  }
+
+  on(ev: string, fn: (...args: unknown[]) => void): void {
+    if (!this.listeners[ev]) this.listeners[ev] = []
+    this.listeners[ev].push(fn)
+  }
+
+  removeListener(ev: string, fn: (...args: unknown[]) => void): void {
+    if (this.listeners[ev]) {
+      this.listeners[ev] = this.listeners[ev].filter((l) => l !== fn)
+    }
+  }
+}
 
 describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
   const sampleTarget: CaptureTarget = {
     sourceId: 'screen:0:0',
     displayId: '101',
     sourceName: 'Primary Monitor'
+  }
+
+  const createMockClient = (frameMock: unknown = { processId: 1, routingId: 1 }) => {
+    const fakePngBase64 = Buffer.from(
+      createValidCapturedFrame({ displayId: '101' }).data
+    ).toString('base64')
+
+    return new CaptureWindowClient({
+      windowFactory: () =>
+        new MockCaptureWindow(frameMock, async (script) => {
+          if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
+            return { ok: true, trackId: 'track-1' }
+          }
+          if (script.includes('ImageCapture') || script.includes('grabFrame')) {
+            return { ok: true, base64: fakePngBase64, width: 1920, height: 1080 }
+          }
+          return null
+        })
+    })
   }
 
   it('fails closed when trustedFrameValidator is missing (never default to allow-all)', async () => {
@@ -29,7 +104,8 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
 
     // Backend created WITHOUT a trusted frame validator
     const backend = new MediaStreamDisplayCaptureBackend({
-      session: mockSession
+      session: mockSession,
+      client: createMockClient()
     })
 
     await backend.start(sampleTarget)
@@ -49,8 +125,9 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
       }
     )
 
-    // MUST fail closed! If validator is missing, permission must NEVER be granted
+    // MUST fail closed! If validator is missing or doesn't match client frame, permission must NEVER be granted
     expect(grantedStreams).toBeNull()
+    await backend.stop()
   })
 
   it('enforces authorizedOrigin and denies requests from mismatched origins', async () => {
@@ -66,8 +143,10 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
 
     const backend = new MediaStreamDisplayCaptureBackend({
       session: mockSession,
+      client: createMockClient(),
       authorizedOrigin: 'http://localhost:5173',
-      isAuthorizedFrame: (_frame, origin) => origin === 'http://localhost:5173'
+      isAuthorizedFrame: (_frame, origin) => origin === 'http://localhost:5173',
+      frameExtractor: async (t) => createValidCapturedFrame({ displayId: t.displayId })
     })
 
     await backend.start(sampleTarget)
@@ -89,6 +168,7 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
 
     // Must be rejected with null
     expect(grantedStreams).toBeNull()
+    await backend.stop()
   })
 
   it('stop() establishes a permanent deny-by-default policy rather than resetting handler to null', async () => {
@@ -98,8 +178,10 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
 
     const backend = new MediaStreamDisplayCaptureBackend({
       session: mockSession,
+      client: createMockClient(),
       authorizedOrigin: 'http://localhost:5173',
-      isAuthorizedFrame: () => true
+      isAuthorizedFrame: () => true,
+      frameExtractor: async (t) => createValidCapturedFrame({ displayId: t.displayId })
     })
 
     await backend.start(sampleTarget)
@@ -173,8 +255,10 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
 
     const backend = new MediaStreamDisplayCaptureBackend({
       session: mockSession,
+      client: createMockClient(),
       authorizedOrigin: 'http://localhost:5173',
-      isAuthorizedFrame: () => true
+      isAuthorizedFrame: () => true,
+      frameExtractor: async (t) => createValidCapturedFrame({ displayId: t.displayId })
     })
 
     await backend.start(sampleTarget)
@@ -196,57 +280,160 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
     expect(grantedStreams).not.toBeNull()
     // Audio must be strictly undefined/omitted
     expect(grantedStreams!.audio).toBeUndefined()
+    await backend.stop()
   })
 
-  describe('CaptureWindowClient Lifecycle & Frame Extraction', () => {
-    it('executes stream acquisition and extracts frames via webExecutor', async () => {
-      const executedScripts: string[] = []
-      const fakePngBase64 = Buffer.from(
-        createValidCapturedFrame({ displayId: '101' }).data
-      ).toString('base64')
-
+  describe('CaptureWindowClient Production Composition & Invariants', () => {
+    it('fails immediately when starting stream without a valid Electron capture context', async () => {
+      // In the old broken code, startStream() with no options marked active = true!
+      // In production, when Electron BrowserWindow is not available, it must throw immediately and leave active = false.
       const client = new CaptureWindowClient({
-        webExecutor: async (script) => {
-          executedScripts.push(script)
-          if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
-            return { ready: true }
-          }
-          if (script.includes('imageCapture.grabFrame')) {
-            return fakePngBase64
-          }
-          return null
+        windowFactory: () => {
+          throw new Error('Electron BrowserWindow is not available in node test harness')
         }
       })
 
       expect(client.isStreamActive()).toBe(false)
-      expect(client.getActiveTarget()).toBeNull()
+      await expect(client.startStream(sampleTarget)).rejects.toThrow(
+        /CaptureWindowClient failed to initialize capture window/
+      )
+      // Must NOT be active!
+      expect(client.isStreamActive()).toBe(false)
+    })
+
+    it('creates capture window with partition binding, loads capture.html, and sets up security guards', async () => {
+      let createdWindow: MockCaptureWindow | null = null
+      let receivedSession: unknown = null
+
+      const fakePngBase64 = Buffer.from(
+        createValidCapturedFrame({ displayId: '101' }).data
+      ).toString('base64')
+
+      const mainFrameMock = { processId: 42, routingId: 1 }
+
+      const client = new CaptureWindowClient({
+        session: 'in-memory:aura-capture',
+        windowFactory: ({ session }) => {
+          receivedSession = session
+          createdWindow = new MockCaptureWindow(mainFrameMock, async (script) => {
+            if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
+              return { ok: true, trackId: 'track-101' }
+            }
+            if (script.includes('ImageCapture') || script.includes('grabFrame')) {
+              return { ok: true, base64: fakePngBase64, width: 1920, height: 1080 }
+            }
+            return null
+          })
+          return createdWindow
+        }
+      })
 
       await client.startStream(sampleTarget)
       expect(client.isStreamActive()).toBe(true)
-      expect(client.getActiveTarget()?.displayId).toBe('101')
-      expect(
-        executedScripts.some((s) => s.includes('navigator.mediaDevices.getDisplayMedia'))
-      ).toBe(true)
+      expect(receivedSession).toBe('in-memory:aura-capture')
+      expect(createdWindow).not.toBeNull()
+      expect(createdWindow!.loadedFiles.length).toBe(1)
+      expect(createdWindow!.loadedFiles[0]).toContain('capture.html')
+      expect(createdWindow!.windowOpenHandler).toBeDefined()
+      expect(createdWindow!.windowOpenHandler!({ url: 'https://evil.com' })).toEqual({
+        action: 'deny'
+      })
 
+      // Frame grab returns valid authentic frame
       const frame = await client.grabFrame(sampleTarget)
       expect(frame.displayId).toBe('101')
       expect(frame.format).toBe('png')
-      expect(frame.data.byteLength).toBeGreaterThan(0)
-      expect(frame.data[0]).toBe(0x89) // PNG signature
-      expect(
-        executedScripts.some((s) => s.includes('imageCapture.grabFrame'))
-      ).toBe(true)
+      expect(frame.data[0]).toBe(0x89)
 
+      // Stop destroys capture window and resets active
       await client.stopStream()
       expect(client.isStreamActive()).toBe(false)
-      expect(client.getActiveTarget()).toBeNull()
-      expect(
-        executedScripts.some((s) => s.includes('window.__activeTrack.stop()'))
-      ).toBe(true)
+      expect(createdWindow!.destroyed).toBe(true)
+    })
+
+    it('authorizes ONLY the exact capture window mainFrame and expected origin, rejecting generic top-level frames', async () => {
+      const mainFrameMock = { processId: 42, routingId: 1 }
+
+      const client = new CaptureWindowClient({
+        expectedOrigin: 'file:///',
+        windowFactory: () =>
+          new MockCaptureWindow(mainFrameMock, async () => ({ ok: true }))
+      })
+
+      // Before start, window is not created: fails closed
+      expect(client.isAuthorizedFrame(mainFrameMock, 'file:///')).toBe(false)
+
+      await client.startStream(sampleTarget)
+
+      // 1. Exact mainFrame object and exact origin -> PASS
+      expect(client.isAuthorizedFrame(mainFrameMock, 'file:///')).toBe(true)
+
+      // 2. Same processId and routingId -> PASS
+      expect(client.isAuthorizedFrame({ processId: 42, routingId: 1 }, 'file:///')).toBe(true)
+
+      // 3. Different frame from another window (e.g. main application window) -> FAIL
+      expect(client.isAuthorizedFrame({ processId: 99, routingId: 1 }, 'file:///')).toBe(false)
+
+      // 4. Nested child frame / iframe -> FAIL
+      expect(client.isAuthorizedFrame({ processId: 42, routingId: 999 }, 'file:///')).toBe(false)
+
+      // 5. Wrong origin -> FAIL
+      expect(client.isAuthorizedFrame(mainFrameMock, 'https://evil.com')).toBe(false)
+      expect(client.isAuthorizedFrame(mainFrameMock, 'http://localhost:5173')).toBe(false)
+
+      // 6. After stop, window destroyed -> FAIL
+      await client.stopStream()
+      expect(client.isAuthorizedFrame(mainFrameMock, 'file:///')).toBe(false)
+    })
+
+    it('fails closed and does not mark active if media stream script returns error', async () => {
+      let createdWindow: MockCaptureWindow | null = null
+
+      const client = new CaptureWindowClient({
+        windowFactory: () => {
+          createdWindow = new MockCaptureWindow({ processId: 1, routingId: 1 }, async () => {
+            return { ok: false, error: 'OS display permission denied' }
+          })
+          return createdWindow
+        }
+      })
+
+      await expect(client.startStream(sampleTarget)).rejects.toThrow(
+        /Stream acquisition failed: OS display permission denied/
+      )
+
+      expect(client.isStreamActive()).toBe(false)
+      expect(createdWindow).not.toBeNull()
+      expect(createdWindow!.destroyed).toBe(true)
+    })
+
+    it('rejects frame extraction if returned payload has invalid PNG header', async () => {
+      const corruptedBase64 = Buffer.from('NOT_A_PNG_FILE_HEADER').toString('base64')
+
+      const client = new CaptureWindowClient({
+        windowFactory: () =>
+          new MockCaptureWindow({ processId: 1, routingId: 1 }, async (script) => {
+            if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
+              return { ok: true }
+            }
+            if (script.includes('ImageCapture') || script.includes('grabFrame')) {
+              return { ok: true, base64: corruptedBase64, width: 100, height: 100 }
+            }
+            return null
+          })
+      })
+
+      await client.startStream(sampleTarget)
+      await expect(client.grabFrame(sampleTarget)).rejects.toThrow(
+        /Frame extraction failed: decoded payload is not a valid PNG/
+      )
+      await client.stopStream()
     })
 
     it('rejects frame grab when stream is inactive', async () => {
-      const client = new CaptureWindowClient()
+      const client = new CaptureWindowClient({
+        windowFactory: () => new MockCaptureWindow({}, async () => ({ ok: true }))
+      })
       await expect(client.grabFrame(sampleTarget)).rejects.toThrow(
         /Cannot grab frame: capture stream is not active/
       )
@@ -258,17 +445,93 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
         client.startStream({ sourceId: '', displayId: '' })
       ).rejects.toThrow(/invalid target/)
     })
+  })
 
-    it('delegates to frameProvider when injected', async () => {
-      const expectedFrame = createValidCapturedFrame({ displayId: '101' })
+  describe('MediaStreamDisplayCaptureBackend Integration with Real Client', () => {
+    it('integrates backend with capture window client to enforce exact frame and origin gate', async () => {
+      let registeredHandler:
+        | ((request: DisplayMediaRequest, callback: (streams: DisplayStreams | null) => void) => void)
+        | null = null
+
+      const mockSession: MediaStreamSessionLike = {
+        setDisplayMediaRequestHandler: vi.fn().mockImplementation((handler) => {
+          registeredHandler = handler
+        })
+      }
+
+      const fakePngBase64 = Buffer.from(
+        createValidCapturedFrame({ displayId: '101' }).data
+      ).toString('base64')
+
+      const captureFrameMock = { processId: 77, routingId: 2 }
+
       const client = new CaptureWindowClient({
-        frameProvider: async () => expectedFrame
+        session: mockSession,
+        expectedOrigin: 'file:///',
+        windowFactory: () =>
+          new MockCaptureWindow(captureFrameMock, async (script) => {
+            if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
+              return { ok: true }
+            }
+            if (script.includes('ImageCapture') || script.includes('grabFrame')) {
+              return { ok: true, base64: fakePngBase64, width: 1920, height: 1080 }
+            }
+            return null
+          })
       })
 
-      await client.startStream(sampleTarget)
-      const frame = await client.grabFrame(sampleTarget)
-      expect(frame).toBe(expectedFrame)
-      await client.stopStream()
+      const backend = new MediaStreamDisplayCaptureBackend({
+        session: mockSession,
+        client
+      })
+
+      await backend.start(sampleTarget)
+      expect(registeredHandler).not.toBeNull()
+
+      // 1. Authorized frame requesting display media
+      let grantedStreams: DisplayStreams | null = null
+      registeredHandler!(
+        {
+          frame: captureFrameMock,
+          securityOrigin: 'file:///',
+          videoRequested: true,
+          audioRequested: false,
+          userGesture: false
+        },
+        (streams) => {
+          grantedStreams = streams
+        }
+      )
+
+      expect(grantedStreams).not.toBeNull()
+      expect(grantedStreams!.video?.id).toBe('screen:0:0')
+      expect(grantedStreams!.video?.name).toBe('Primary Monitor')
+
+      // 2. Foreign frame requesting display media -> denied fail-closed
+      let deniedStreams: DisplayStreams | null = 'sentinel' as unknown as DisplayStreams
+      registeredHandler!(
+        {
+          frame: { processId: 99, routingId: 99 },
+          securityOrigin: 'file:///',
+          videoRequested: true,
+          audioRequested: false,
+          userGesture: false
+        },
+        (streams) => {
+          deniedStreams = streams
+        }
+      )
+      expect(deniedStreams).toBeNull()
+
+      // 3. Frame grab produces valid PNG
+      const frame = await backend.captureFrame(sampleTarget)
+      expect(frame.displayId).toBe('101')
+      expect(frame.format).toBe('png')
+      expect(frame.data[0]).toBe(0x89)
+
+      // 4. Stop tears down client and installs deny handler
+      await backend.stop()
+      expect(client.isStreamActive()).toBe(false)
     })
   })
 })
