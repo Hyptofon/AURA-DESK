@@ -7,12 +7,58 @@ import {
 } from '../../src/main/capture/mediastream-backend'
 import {
   CaptureWindowClient,
+  defaultCaptureWindowFactory,
   resolveCaptureHtmlPath,
   type BrowserWindowLike,
   type WebContentsLike
 } from '../../src/main/capture/capture-window-client'
 import type { CaptureTarget } from '../../src/shared/contracts/capture'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
+
+interface MockBrowserWindowOptions {
+  show?: boolean
+  width?: number
+  height?: number
+  webPreferences?: {
+    session?: unknown
+    sandbox?: boolean
+    contextIsolation?: boolean
+    nodeIntegration?: boolean
+    backgroundThrottling?: boolean
+  }
+}
+
+const mockBrowserWindowCalls: MockBrowserWindowOptions[] = []
+
+class MockElectronBrowserWindow implements BrowserWindowLike {
+  public webContents: WebContentsLike
+  public options: MockBrowserWindowOptions
+
+  constructor(options: MockBrowserWindowOptions) {
+    this.options = options
+    mockBrowserWindowCalls.push(options)
+    this.webContents = {
+      mainFrame: { processId: 10, routingId: 10 },
+      executeJavaScript: vi.fn().mockResolvedValue({ ok: true, trackId: 'test-track' }),
+      setWindowOpenHandler: vi.fn(),
+      on: vi.fn(),
+      removeListener: vi.fn()
+    }
+  }
+
+  async loadFile(): Promise<void> {}
+  async loadURL(): Promise<void> {}
+  destroy(): void {}
+  isDestroyed(): boolean {
+    return false
+  }
+  on(): void {}
+  removeListener(): void {}
+}
+
+vi.mock('electron', () => ({
+  BrowserWindow: MockElectronBrowserWindow
+}))
 
 class MockCaptureWindow implements BrowserWindowLike {
   public webContents: WebContentsLike
@@ -734,6 +780,71 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
       // 4. Stop tears down client and installs deny handler
       await backend.stop()
       expect(client.isStreamActive()).toBe(false)
+    })
+  })
+
+  describe('defaultCaptureWindowFactory session unwrapping & isolation invariants', () => {
+    it('unwraps options.session when called with { session: isolatedSession }', () => {
+      mockBrowserWindowCalls.length = 0
+      const mockSession = { partition: 'in-memory:aura-capture' }
+      const win = defaultCaptureWindowFactory({ session: mockSession }, MockElectronBrowserWindow)
+
+      expect(win).toBeDefined()
+      expect(mockBrowserWindowCalls).toHaveLength(1)
+      const call = mockBrowserWindowCalls[0]
+      expect(call.show).toBe(false)
+      expect(call.webPreferences?.session).toBe(mockSession)
+      expect(call.webPreferences?.sandbox).toBe(true)
+      expect(call.webPreferences?.contextIsolation).toBe(true)
+      expect(call.webPreferences?.nodeIntegration).toBe(false)
+      expect(call.webPreferences?.backgroundThrottling).toBe(false)
+    })
+
+    it('unwraps direct session when called with session instance directly', () => {
+      mockBrowserWindowCalls.length = 0
+      const mockSession = { partition: 'in-memory:aura-capture-direct' }
+      const win = defaultCaptureWindowFactory(mockSession, MockElectronBrowserWindow)
+
+      expect(win).toBeDefined()
+      expect(mockBrowserWindowCalls).toHaveLength(1)
+      const call = mockBrowserWindowCalls[0]
+      expect(call.webPreferences?.session).toBe(mockSession)
+    })
+
+    it('handles undefined options safely without crashing', () => {
+      mockBrowserWindowCalls.length = 0
+      const win = defaultCaptureWindowFactory(undefined, MockElectronBrowserWindow)
+
+      expect(win).toBeDefined()
+      expect(mockBrowserWindowCalls).toHaveLength(1)
+      const call = mockBrowserWindowCalls[0]
+      expect(call.webPreferences?.session).toBeUndefined()
+    })
+
+    it('production CaptureWindowClient binds isolated session through defaultCaptureWindowFactory', async () => {
+      mockBrowserWindowCalls.length = 0
+      const mockSession = { partition: 'in-memory:aura-capture' }
+      const client = new CaptureWindowClient({
+        session: mockSession,
+        windowFactory: (opts) => defaultCaptureWindowFactory(opts, MockElectronBrowserWindow),
+        htmlPath: resolveCaptureHtmlPath()
+      })
+
+      // startStream should invoke defaultCaptureWindowFactory with { session: mockSession }
+      await client.startStream(sampleTarget)
+      expect(mockBrowserWindowCalls).toHaveLength(1)
+      // The session passed to BrowserWindow must be the exact mockSession, NOT { session: mockSession }
+      expect(mockBrowserWindowCalls[0].webPreferences?.session).toBe(mockSession)
+      await client.stopStream()
+    })
+
+    it('fails closed when Electron BrowserWindow is not available', () => {
+      expect(() =>
+        defaultCaptureWindowFactory(
+          undefined,
+          null as unknown as new (options: unknown) => BrowserWindowLike
+        )
+      ).toThrow(/Cannot create production capture window/)
     })
   })
 })
