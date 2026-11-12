@@ -53,7 +53,21 @@ const DEFAULT_START_TIMEOUT_MS = 5000
  * Fails closed with a clear error if the document cannot be found.
  */
 export function resolveCaptureHtmlPath(assetPathOverride?: string): string {
-  const assetCandidate = assetPathOverride ?? captureHtmlAsset
+  // If an explicit override path was passed, validate it strictly and do not fall back
+  if (typeof assetPathOverride === 'string' && assetPathOverride.length > 0) {
+    if (fs.existsSync(assetPathOverride)) {
+      return assetPathOverride
+    }
+    const cleaned = assetPathOverride.replace(/\?.*$/, '')
+    if (fs.existsSync(cleaned)) {
+      return cleaned
+    }
+    throw new Error(
+      `Capture surface document (capture.html) could not be resolved at specified path: "${assetPathOverride}"`
+    )
+  }
+
+  const assetCandidate = captureHtmlAsset
 
   if (typeof assetCandidate === 'string' && assetCandidate.length > 0) {
     // 1. Direct path check (emitted by electron-vite in production build)
