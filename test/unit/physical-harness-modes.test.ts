@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { createRequire } from 'node:module'
 
-// Import CommonJS harness helpers
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const harness = require('../../scripts/verify-physical-isolation.cjs')
+const nodeRequire = createRequire(import.meta.url)
+const harness = nodeRequire('../../scripts/verify-physical-isolation.cjs')
 
 const {
   parseCliArgs,
@@ -19,6 +19,14 @@ const {
   CHECK_HARNESS_FLAG,
   LIST_DISPLAYS_FLAG
 } = harness
+
+interface MockBrowserWindowLike {
+  isDestroyed: () => boolean
+  getBounds?: () => { x: number; y: number; width: number; height: number }
+  isVisible?: () => boolean
+  isAlwaysOnTop?: () => boolean
+  isMinimized?: () => boolean
+}
 
 describe('Physical Harness CLI & Argument Parsing', () => {
   it('returns default options when no arguments are passed', () => {
@@ -172,7 +180,7 @@ describe('Evidence Preservation & Immutable Storage', () => {
   afterEach(() => {
     try {
       fs.rmSync(tempArtifactDir, { recursive: true, force: true })
-    } catch (_) {
+    } catch {
       // ignore teardown error
     }
   })
@@ -311,16 +319,19 @@ describe('Window Diagnostics & Pattern HTML Builder', () => {
     expect(diagNull.boundsMatch).toBe(false)
     expect(diagNull.actualBounds).toBeNull()
 
-    const mockDestroyedWin = {
+    const mockDestroyedWin: MockBrowserWindowLike = {
       isDestroyed: () => true
     }
-    const diagDestroyed = getWindowDiagnostics(mockDestroyedWin as any, bounds)
+    const diagDestroyed = getWindowDiagnostics(
+      mockDestroyedWin as unknown as Parameters<typeof getWindowDiagnostics>[0],
+      bounds
+    )
     expect(diagDestroyed.isDestroyed).toBe(true)
   })
 
   it('reports accurate diagnostics for active window matching expected bounds', () => {
     const expected = { x: 0, y: 0, width: 1920, height: 1080 }
-    const mockWin = {
+    const mockWin: MockBrowserWindowLike = {
       isDestroyed: () => false,
       getBounds: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
       isVisible: () => true,
@@ -328,7 +339,10 @@ describe('Window Diagnostics & Pattern HTML Builder', () => {
       isMinimized: () => false
     }
 
-    const diag = getWindowDiagnostics(mockWin as any, expected)
+    const diag = getWindowDiagnostics(
+      mockWin as unknown as Parameters<typeof getWindowDiagnostics>[0],
+      expected
+    )
     expect(diag.isDestroyed).toBe(false)
     expect(diag.boundsMatch).toBe(true)
     expect(diag.isVisible).toBe(true)
