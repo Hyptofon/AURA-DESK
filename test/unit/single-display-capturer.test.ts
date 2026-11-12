@@ -346,6 +346,42 @@ describe('SingleDisplayCapturer', () => {
     expect(capturer.getLastError()).toBeNull()
   })
 
+  it('hotplug: safely handles asynchronous backend stop rejection during abrupt termination without unhandled rejection', async () => {
+    let backendStopCalled = false
+    const failingBackend: FrameCaptureBackend = {
+      start: async () => {},
+      captureFrame: async (target) => createValidCapturedFrame({ displayId: target.displayId }),
+      stop: async () => {
+        backendStopCalled = true
+        throw new Error('Simulated async backend stop failure')
+      }
+    }
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: failingBackend
+    })
+
+    await capturer.start('202')
+    expect(capturer.getStatus()).toBe('active')
+
+    // Trigger abrupt termination via hotplug event
+    mockScreen.displays = [createDisplay(101, 0)]
+    mockScreen.emit('display-removed', {}, createDisplay(202, 1920))
+
+    // State must immediately fail closed: error status with SELECTED_DISPLAY_LOST and flushed frames
+    expect(capturer.getStatus()).toBe('error')
+    expect(capturer.isActive()).toBe(false)
+    expect(capturer.getLastError()).toContain('SELECTED_DISPLAY_LOST')
+    expect(capturer.getLatestFrame()).toBeNull()
+    expect(capturer.getFrameHistory().length).toBe(0)
+    expect(backendStopCalled).toBe(true)
+
+    // Stop recovers state back to idle cleanly
+    await capturer.stop()
+    expect(capturer.getStatus()).toBe('idle')
+  })
+
   it('handles backend capture failure by entering error state and aborting cleanly', async () => {
     fakeBackend.customHandler = async () => {
       throw new Error('OS capture device disconnected')
