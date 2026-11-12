@@ -21,6 +21,10 @@ description: "Designs focused Vitest/React Testing Library tests and staged Elec
 3. **Hermetic and offline test fixtures**:
    - Keep fixtures deterministic and offline. Never require live network access, real API keys, or private user files.
    - Respect user privacy: never capture real screen pixels or record live microphone audio during automated test runs without explicit user consent.
+4. **Mandatory production-composition smoke tests for hardware ports**:
+   - For all hardware-facing features (display capture, audio recording, native helpers), test the actual production factory wiring and default constructors without injected test fakes.
+   - Assert that the production path creates the real required OS/Electron context (e.g. dedicated window, session partition, driver handle), fails closed immediately if context cannot be created, and never reports active or success when a necessary dependency or capture context is missing.
+   - Prevent "mock-only architecture" where components pass tests by injecting fakes while production wiring remains uninstantiated or broken.
 
 ## Procedure
 1. Read `docs/TEST_STRATEGY.md`, `docs/ENGINEERING_LESSONS.md`, acceptance criteria, changed behavior, and existing tests.
