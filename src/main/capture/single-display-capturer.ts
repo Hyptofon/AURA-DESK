@@ -67,15 +67,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     this.buffer = new FrameRingBuffer(options)
     this.sampleIntervalMs = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS
     this.capturerApi = options.capturerApi ?? desktopCapturer
-    this.backend =
-      options.backend ??
-      new MediaStreamDisplayCaptureBackend({
-        isAuthorizedFrame: (frame: unknown) => {
-          if (!frame || typeof frame !== 'object') return false
-          const f = frame as { parent?: unknown }
-          return f.parent === null || f.parent === undefined
-        }
-      })
+    this.backend = options.backend ?? new MediaStreamDisplayCaptureBackend()
   }
 
   /**
@@ -246,6 +238,10 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
 
   public getBufferStats(): FrameBufferStats {
     return this.buffer.getStats()
+  }
+
+  public getBackend(): FrameCaptureBackend {
+    return this.backend
   }
 
   private async captureSample(expectedGen: number, rethrow = false): Promise<void> {
