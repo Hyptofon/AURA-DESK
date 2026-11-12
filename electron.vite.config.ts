@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    assetsInclude: ['**/*.html'],
     build: {
       rollupOptions: {
         input: {
