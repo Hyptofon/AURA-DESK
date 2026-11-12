@@ -279,5 +279,59 @@ describe('Display Source Resolver', () => {
         )
       ).toThrow(/no matching Windows display device coordinates found/)
     })
+
+    it('refuses coordinate fallback when sources contain populated display_id values (prevents cross-display hijack)', () => {
+      // Suppose direct display_id IS available from desktopCapturer, and screen:0:0 explicitly owns display '999999999'
+      // While target '1238924755' is missing from sources, Strategy 2 must NOT map 1238924755 onto screen:0:0!
+      const populatedMismatchSources: DesktopCapturerSourceLike[] = [
+        { id: 'screen:0:0', name: 'Screen 1', display_id: '999999999' },
+        { id: 'screen:1:0', name: 'Screen 2', display_id: '368940417' }
+      ]
+
+      expect(() =>
+        resolveSourceForDisplay(
+          '1238924755',
+          realWindowsDisplays,
+          populatedMismatchSources,
+          realWindowsDevices
+        )
+      ).toThrow(/no desktopCapturer source with matching display_id found/)
+    })
+
+    it('fails closed when multiple enumerated displays share identical coordinates (mirrored/cloned layout)', () => {
+      const mirroredDisplays: DisplayInfo[] = [
+        { ...realWindowsDisplays[0], id: '1238924755' },
+        { ...realWindowsDisplays[0], id: '368940417', isPrimary: false }
+      ]
+
+      expect(() =>
+        resolveSourceForDisplay(
+          '1238924755',
+          mirroredDisplays,
+          realWindowsSources,
+          realWindowsDevices
+        )
+      ).toThrow(/multiple enumerated displays share coordinates/)
+    })
+
+    it('fails closed on negative Windows display device index', () => {
+      const invalidIndexDevices = [
+        {
+          deviceName: '\\\\.\\DISPLAY0',
+          displayIndex: -1,
+          bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          isPrimary: true
+        }
+      ]
+
+      expect(() =>
+        resolveSourceForDisplay(
+          '1238924755',
+          realWindowsDisplays,
+          realWindowsSources,
+          invalidIndexDevices
+        )
+      ).toThrow(/invalid Windows device index/)
+    })
   })
 })
