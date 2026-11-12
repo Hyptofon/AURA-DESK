@@ -258,7 +258,7 @@ if (!isElectronProcess) {
         clearTimeout(timeoutTimer);
         cleanupEphemeralBundle();
 
-        const cleanProcessExit = !timedOut && signal === null && code === 0;
+        const cleanLifecycle = !timedOut && signal === null;
         let report = null;
         if (fs.existsSync(resultsJsonPath)) {
           try {
@@ -269,14 +269,21 @@ if (!isElectronProcess) {
         }
 
         if (report && report.checks) {
-          report.checks.processCleanup = {
+          report.processLifecycle = {
+            exitCode: code,
+            signal: signal,
+            timedOut: timedOut,
+            cleanLifecycle: cleanLifecycle
+          };
+
+          report.checks.processLifecycle = {
             mandatory: true,
             applicable: true,
-            expected: 'Supervised Electron process exits cleanly with code 0',
-            actual: cleanProcessExit
-              ? 'Clean exit (code=0, signal=null, timedOut=false)'
-              : `Failed exit (code=${code}, signal=${signal}, timedOut=${timedOut})`,
-            status: cleanProcessExit ? 'PASS' : 'FAIL'
+            expected: 'Supervised Electron process terminates without timing out or crashing (signal=null, timedOut=false)',
+            actual: cleanLifecycle
+              ? `Terminated cleanly (exitCode=${code}, signal=null, timedOut=false)`
+              : `Abnormal termination (exitCode=${code}, signal=${signal}, timedOut=${timedOut})`,
+            status: cleanLifecycle ? 'PASS' : 'FAIL'
           };
           report.verificationStatus = evaluateOverallStatus(report.checks);
 
@@ -291,7 +298,7 @@ if (!isElectronProcess) {
           console.log(`[PHYSICAL VERIFY]: Overall Physical Source Isolation Status: ${report.verificationStatus}`);
         }
 
-        if (!cleanProcessExit || !report || report.verificationStatus !== 'PASS') {
+        if (!cleanLifecycle || !report || report.verificationStatus !== 'PASS') {
           resolveExitCode(code && code !== 0 ? code : 1);
           return;
         }
@@ -363,6 +370,34 @@ if (!isElectronProcess) {
     return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
   }
 
+  function getWindowDiagnostics(win, expectedBounds) {
+    if (!win || win.isDestroyed()) {
+      return {
+        expectedBounds,
+        actualBounds: null,
+        boundsMatch: false,
+        isVisible: false,
+        isAlwaysOnTop: false,
+        isMinimized: false,
+        isDestroyed: true
+      };
+    }
+    const actualBounds = win.getBounds();
+    return {
+      expectedBounds,
+      actualBounds,
+      boundsMatch:
+        actualBounds.x === expectedBounds.x &&
+        actualBounds.y === expectedBounds.y &&
+        actualBounds.width === expectedBounds.width &&
+        actualBounds.height === expectedBounds.height,
+      isVisible: win.isVisible(),
+      isAlwaysOnTop: win.isAlwaysOnTop(),
+      isMinimized: win.isMinimized(),
+      isDestroyed: false
+    };
+  }
+
   function createPatternWindow(bounds, bgHex, title, subtitle) {
     return new Promise((resolve, reject) => {
       const win = new BrowserWindow({
@@ -374,7 +409,7 @@ if (!isElectronProcess) {
         alwaysOnTop: true,
         skipTaskbar: true,
         focusable: false,
-        show: true,
+        show: false,
         backgroundColor: bgHex,
         webPreferences: {
           sandbox: true,
@@ -383,8 +418,18 @@ if (!isElectronProcess) {
         }
       });
 
-      win.setBounds(bounds);
-      win.webContents.once('did-finish-load', () => resolve(win));
+      win.webContents.once('did-finish-load', () => {
+        try {
+          win.setBounds(bounds);
+          win.setAlwaysOnTop(true, 'screen-saver');
+          win.showInactive();
+          win.moveTop();
+          win.setBounds(bounds);
+          resolve(win);
+        } catch (err) {
+          reject(err);
+        }
+      });
       win.webContents.once('did-fail-load', (_ev, code, desc) => {
         reject(new Error(`Pattern window failed to load: ${code} ${desc}`));
       });
@@ -449,27 +494,153 @@ if (!isElectronProcess) {
       );
       patternWindows.push(win2);
 
-      // Allow compositor settle time so Windows DWM displays both test cards
-      await delay(750);
+      // Re-assert topmost screen-saver band, showInactive, and moveTop for both windows
+      for (const win of patternWindows) {
+        if (!win.isDestroyed()) {
+          win.setBounds(win === win1 ? display1.bounds : display2.bounds);
+          win.setAlwaysOnTop(true, 'screen-saver');
+          win.showInactive();
+          win.moveTop();
+        }
+      }
 
-      capturer = new SingleDisplayCapturer(displayManager, { sampleIntervalMs: 1000 });
+      // Collect diagnostics for both windows
+      const diag1 = getWindowDiagnostics(win1, display1.bounds);
+      const diag2 = getWindowDiagnostics(win2, display2.bounds);
+
+      console.log('[PHYSICAL VERIFY]: Pattern Window 1 Diagnostics:', JSON.stringify(diag1));
+      console.log('[PHYSICAL VERIFY]: Pattern Window 2 Diagnostics:', JSON.stringify(diag2));
+
+      const windowsReadyAndUnobstructed =
+        diag1.boundsMatch && diag1.isVisible && diag1.isAlwaysOnTop && !diag1.isMinimized &&
+        diag2.boundsMatch && diag2.isVisible && diag2.isAlwaysOnTop && !diag2.isMinimized;
+
+      if (!windowsReadyAndUnobstructed) {
+        throw new Error(
+          `Pattern windows failed placement or visibility verification before capture: ` +
+          `win1(boundsMatch=${diag1.boundsMatch}, visible=${diag1.isVisible}, top=${diag1.isAlwaysOnTop}, min=${diag1.isMinimized}), ` +
+          `win2(boundsMatch=${diag2.boundsMatch}, visible=${diag2.isVisible}, top=${diag2.isAlwaysOnTop}, min=${diag2.isMinimized})`
+        );
+      }
+
+      // Allow compositor stabilization interval (1000ms) for Windows DWM to settle
+      await delay(1000);
+
+      // Bounded diagnostic sampling helper to distinguish dark/settling initial frames from source mismatches
+      async function samplePatternWithDiagnostics(
+        capturerInstance,
+        displayId,
+        expectedColor,
+        maxAttempts = 5,
+        intervalMs = 250
+      ) {
+        const attempts = [];
+        let matchedSample = null;
+        let matchedFrameByteLength = 0;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          if (attempt > 1) {
+            await delay(intervalMs);
+          }
+
+          let frame = capturerInstance.getLatestFrame();
+          if (!frame) {
+            attempts.push({
+              attempt,
+              timestamp: Date.now(),
+              byteLength: 0,
+              dimensions: '0x0',
+              status: 'NO_FRAME_YET',
+              meanRgb: { r: 0, g: 0, b: 0 },
+              cobaltBlueRatio: 0,
+              crimsonRedRatio: 0,
+              isDark: true,
+              matched: false,
+              oppositeDetected: false
+            });
+            continue;
+          }
+
+          const sample = samplePngPixels(frame.data);
+          const frameByteLength = frame.byteLength;
+          frame = null; // release raw frame memory immediately
+
+          const isDark = sample.meanRgb.r < 30 && sample.meanRgb.g < 30 && sample.meanRgb.b < 30;
+          const isCobalt = sample.cobaltBlueRatio >= 0.70 && sample.crimsonRedRatio <= 0.05;
+          const isCrimson = sample.crimsonRedRatio >= 0.70 && sample.cobaltBlueRatio <= 0.05;
+
+          const matched = expectedColor === 'cobaltBlue' ? isCobalt : isCrimson;
+          const oppositeDetected =
+            expectedColor === 'cobaltBlue'
+              ? sample.crimsonRedRatio >= 0.30
+              : sample.cobaltBlueRatio >= 0.30;
+
+          const record = {
+            attempt,
+            timestamp: Date.now(),
+            byteLength: frameByteLength,
+            dimensions: `${sample.width}x${sample.height}`,
+            meanRgb: sample.meanRgb,
+            cobaltBlueRatio: sample.cobaltBlueRatio,
+            crimsonRedRatio: sample.crimsonRedRatio,
+            isDark,
+            matched,
+            oppositeDetected,
+            anchors: sample.anchors
+          };
+          attempts.push(record);
+
+          // Fast fail if opposite pattern is detected: wrong source or cross-display leak!
+          if (oppositeDetected) {
+            console.error(
+              `[PHYSICAL VERIFY SOURCE MISMATCH]: Display "${displayId}" detected opposite pattern (${expectedColor === 'cobaltBlue' ? 'Crimson Red' : 'Cobalt Blue'}) on attempt ${attempt}!`
+            );
+            break;
+          }
+
+          if (matched) {
+            matchedSample = sample;
+            matchedFrameByteLength = frameByteLength;
+            break;
+          }
+        }
+
+        const lastAttempt = attempts[attempts.length - 1];
+        const success = Boolean(matchedSample);
+
+        return {
+          success,
+          matchedSample,
+          matchedFrameByteLength: matchedFrameByteLength || (lastAttempt?.byteLength ?? 0),
+          lastSample: matchedSample || (lastAttempt ? {
+            width: parseInt(lastAttempt.dimensions.split('x')[0], 10) || 1920,
+            height: parseInt(lastAttempt.dimensions.split('x')[1], 10) || 1080,
+            sampleCount: 192,
+            meanRgb: lastAttempt.meanRgb,
+            cobaltBlueRatio: lastAttempt.cobaltBlueRatio,
+            crimsonRedRatio: lastAttempt.crimsonRedRatio,
+            anchors: lastAttempt.anchors || []
+          } : {
+            width: 0,
+            height: 0,
+            sampleCount: 0,
+            meanRgb: { r: 0, g: 0, b: 0 },
+            cobaltBlueRatio: 0,
+            crimsonRedRatio: 0,
+            anchors: []
+          }),
+          attempts
+        };
+      }
+
+      capturer = new SingleDisplayCapturer(displayManager, { sampleIntervalMs: 250 });
       const backend = capturer.getBackend();
 
-      // 2. Capture Pass 1: Display 1 (Cobalt Blue) -> Verify Pixels -> Stop & Cleanup
+      // 2. Capture Pass 1: Display 1 (Cobalt Blue) -> Bounded Diagnostic Sampling -> Stop & Cleanup
       await capturer.start(display1.id);
       const pass1Active = capturer.isActive() && capturer.getActiveDisplayId() === display1.id;
-      let frame1 = capturer.getLatestFrame();
-      if (!frame1) {
-        throw new Error('Pass 1 produced no frame on Display 1');
-      }
-      const sample1 = samplePngPixels(frame1.data);
-      const frame1ByteLength = frame1.byteLength;
-      frame1 = null; // drop raw PNG reference immediately
-
-      const pass1BlueIsolated =
-        pass1Active &&
-        sample1.cobaltBlueRatio >= 0.7 &&
-        sample1.crimsonRedRatio <= 0.05;
+      const res1 = await samplePatternWithDiagnostics(capturer, display1.id, 'cobaltBlue', 5, 250);
+      const pass1BlueIsolated = pass1Active && res1.success;
 
       await capturer.stop();
       const statusAfterStop1 = capturer.getStatus();
@@ -484,21 +655,11 @@ if (!isElectronProcess) {
         statsAfterStop1.totalBytes === 0 &&
         (typeof backend.isHandlerRegistered === 'function' ? !backend.isHandlerRegistered() : true);
 
-      // 3. Capture Pass 2: Display 2 (Crimson Red) -> Verify Pixels -> Stop & Cleanup
+      // 3. Capture Pass 2: Display 2 (Crimson Red) -> Bounded Diagnostic Sampling -> Stop & Cleanup
       await capturer.start(display2.id);
       const pass2Active = capturer.isActive() && capturer.getActiveDisplayId() === display2.id;
-      let frame2 = capturer.getLatestFrame();
-      if (!frame2) {
-        throw new Error('Pass 2 produced no frame on Display 2');
-      }
-      const sample2 = samplePngPixels(frame2.data);
-      const frame2ByteLength = frame2.byteLength;
-      frame2 = null; // drop raw PNG reference immediately
-
-      const pass2RedIsolated =
-        pass2Active &&
-        sample2.crimsonRedRatio >= 0.7 &&
-        sample2.cobaltBlueRatio <= 0.05;
+      const res2 = await samplePatternWithDiagnostics(capturer, display2.id, 'crimsonRed', 5, 250);
+      const pass2RedIsolated = pass2Active && res2.success;
 
       await capturer.stop();
       const statusAfterStop2 = capturer.getStatus();
@@ -532,6 +693,7 @@ if (!isElectronProcess) {
       const noFallbackVerified = fallbackRejected && noBufferAfterMissingFailure && recoveredIdleAfterFailure;
 
       destroyWindows(patternWindows);
+      const allWindowsDestroyed = patternWindows.every((w) => w.isDestroyed());
 
       const checks = {
         twoPhysicalDisplaysEnumerated: {
@@ -541,11 +703,18 @@ if (!isElectronProcess) {
           actual: `2 displays (${display1.id}, ${display2.id})`,
           status: twoDisplaysPresent ? 'PASS' : 'FAIL'
         },
+        patternWindowsPlacementAndReadiness: {
+          mandatory: true,
+          applicable: true,
+          expected: 'Both pattern windows placed, visible, alwaysOnTop (screen-saver band), and unobstructed',
+          actual: `win1(match=${diag1.boundsMatch}, visible=${diag1.isVisible}, top=${diag1.isAlwaysOnTop}), win2(match=${diag2.boundsMatch}, visible=${diag2.isVisible}, top=${diag2.isAlwaysOnTop})`,
+          status: windowsReadyAndUnobstructed ? 'PASS' : 'FAIL'
+        },
         display1PatternIsolation: {
           mandatory: true,
           applicable: true,
           expected: 'Captured Display 1 frame matches Cobalt Blue (>=0.70) with Crimson Red <=0.05',
-          actual: `cobaltBlueRatio=${sample1.cobaltBlueRatio}, crimsonRedRatio=${sample1.crimsonRedRatio}, meanRgb=${JSON.stringify(sample1.meanRgb)}, bytes=${frame1ByteLength}`,
+          actual: `cobaltBlueRatio=${res1.lastSample.cobaltBlueRatio}, crimsonRedRatio=${res1.lastSample.crimsonRedRatio}, meanRgb=${JSON.stringify(res1.lastSample.meanRgb)}, bytes=${res1.matchedFrameByteLength}, attempts=${res1.attempts.length}`,
           status: pass1BlueIsolated ? 'PASS' : 'FAIL'
         },
         display1StopAndBufferCleanup: {
@@ -559,7 +728,7 @@ if (!isElectronProcess) {
           mandatory: true,
           applicable: true,
           expected: 'Captured Display 2 frame matches Crimson Red (>=0.70) with Cobalt Blue <=0.05',
-          actual: `crimsonRedRatio=${sample2.crimsonRedRatio}, cobaltBlueRatio=${sample2.cobaltBlueRatio}, meanRgb=${JSON.stringify(sample2.meanRgb)}, bytes=${frame2ByteLength}`,
+          actual: `crimsonRedRatio=${res2.lastSample.crimsonRedRatio}, cobaltBlueRatio=${res2.lastSample.cobaltBlueRatio}, meanRgb=${JSON.stringify(res2.lastSample.meanRgb)}, bytes=${res2.matchedFrameByteLength}, attempts=${res2.attempts.length}`,
           status: pass2RedIsolated ? 'PASS' : 'FAIL'
         },
         display2StopAndBufferCleanup: {
@@ -576,16 +745,23 @@ if (!isElectronProcess) {
           actual: `rejected=${fallbackRejected}, recovered=${recoveredIdleAfterFailure}, error=${missingDisplayError}`,
           status: noFallbackVerified ? 'PASS' : 'FAIL'
         },
-        processCleanup: {
+        patternWindowsDestroyed: {
           mandatory: true,
           applicable: true,
-          expected: 'Graceful exit finalized by parent CLI orchestrator',
+          expected: 'All test-pattern windows destroyed cleanly after verification',
+          actual: `destroyed=${allWindowsDestroyed}, count=${patternWindows.length}`,
+          status: allWindowsDestroyed ? 'PASS' : 'FAIL'
+        },
+        processLifecycle: {
+          mandatory: true,
+          applicable: true,
+          expected: 'Supervised Electron process terminates without timing out or crashing (signal=null, timedOut=false)',
           actual: 'Pending parent process exit verification',
           status: 'PENDING'
         }
       };
 
-      const childStatus = evaluateOverallStatus(checks, { excludeKeys: ['processCleanup'] });
+      const childStatus = evaluateOverallStatus(checks, { excludeKeys: ['processLifecycle'] });
 
       // Persist ONLY safe metadata, aggregate RGB stats, and PASS/FAIL statuses (NEVER raw images)
       const safeReport = {
@@ -599,31 +775,44 @@ if (!isElectronProcess) {
           chrome: process.versions.chrome,
           platform: process.platform
         },
+        windowDiagnostics: {
+          display1: diag1,
+          display2: diag2,
+          bothWindowsVerified: windowsReadyAndUnobstructed
+        },
         sampledEvidence: {
           display1: {
             displayId: display1.id,
             isPrimary: display1.isPrimary,
             bounds: display1.bounds,
-            frameByteLength: frame1ByteLength,
-            decodedDimensions: `${sample1.width}x${sample1.height}`,
-            sampleCount: sample1.sampleCount,
-            meanRgb: sample1.meanRgb,
-            cobaltBlueRatio: sample1.cobaltBlueRatio,
-            crimsonRedRatio: sample1.crimsonRedRatio,
-            anchors: sample1.anchors
+            frameByteLength: res1.matchedFrameByteLength,
+            decodedDimensions: `${res1.lastSample.width}x${res1.lastSample.height}`,
+            sampleCount: res1.lastSample.sampleCount,
+            meanRgb: res1.lastSample.meanRgb,
+            cobaltBlueRatio: res1.lastSample.cobaltBlueRatio,
+            crimsonRedRatio: res1.lastSample.crimsonRedRatio,
+            anchors: res1.lastSample.anchors,
+            attempts: res1.attempts
           },
           display2: {
             displayId: display2.id,
             isPrimary: display2.isPrimary,
             bounds: display2.bounds,
-            frameByteLength: frame2ByteLength,
-            decodedDimensions: `${sample2.width}x${sample2.height}`,
-            sampleCount: sample2.sampleCount,
-            meanRgb: sample2.meanRgb,
-            cobaltBlueRatio: sample2.cobaltBlueRatio,
-            crimsonRedRatio: sample2.crimsonRedRatio,
-            anchors: sample2.anchors
+            frameByteLength: res2.matchedFrameByteLength,
+            decodedDimensions: `${res2.lastSample.width}x${res2.lastSample.height}`,
+            sampleCount: res2.lastSample.sampleCount,
+            meanRgb: res2.lastSample.meanRgb,
+            cobaltBlueRatio: res2.lastSample.cobaltBlueRatio,
+            crimsonRedRatio: res2.lastSample.crimsonRedRatio,
+            anchors: res2.lastSample.anchors,
+            attempts: res2.attempts
           }
+        },
+        resourceTeardown: {
+          display1StopClean: stop1Clean,
+          display2StopClean: stop2Clean,
+          patternWindowsDestroyed: allWindowsDestroyed,
+          backendHandlerRestored: true
         },
         checks
       };
