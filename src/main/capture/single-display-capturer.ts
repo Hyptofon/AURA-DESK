@@ -328,9 +328,11 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
 
     if (this.backend.stop) {
       try {
-        void this.backend.stop()
+        Promise.resolve(this.backend.stop()).catch((err) => {
+          console.error('Asynchronous error during abrupt capture backend stop:', err)
+        })
       } catch (err) {
-        console.error('Error stopping capture backend:', err)
+        console.error('Synchronous error invoking capture backend stop:', err)
       }
     }
   }
