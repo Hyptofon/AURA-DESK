@@ -14,6 +14,10 @@ import {
   resolveSourceForDisplay,
   type DesktopCapturerSourceLike
 } from './source-resolver'
+import {
+  queryWindowsDisplayDevices,
+  type WindowsDisplayDevice
+} from './windows-display-query'
 
 export interface DesktopCapturerLike {
   getSources(options: {
@@ -27,6 +31,7 @@ export interface SingleDisplayCapturerOptions extends FrameBufferOptions {
   sampleIntervalMs?: number
   capturerApi?: DesktopCapturerLike
   backend?: FrameCaptureBackend
+  windowsDisplayQuery?: () => Promise<WindowsDisplayDevice[]>
 }
 
 const DEFAULT_SAMPLE_INTERVAL_MS = 2000 // 2 seconds per spec FR-02
@@ -58,6 +63,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
   private readonly capturerApi: DesktopCapturerLike
   private readonly backend: FrameCaptureBackend
   private readonly displayManager: DisplayManager
+  private readonly windowsDisplayQuery: () => Promise<WindowsDisplayDevice[]>
 
   constructor(
     displayManager: DisplayManager,
@@ -68,6 +74,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     this.sampleIntervalMs = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS
     this.capturerApi = options.capturerApi ?? desktopCapturer
     this.backend = options.backend ?? new MediaStreamDisplayCaptureBackend()
+    this.windowsDisplayQuery = options.windowsDisplayQuery ?? queryWindowsDisplayDevices
   }
 
   /**
@@ -125,8 +132,22 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
         throw new Error('Capture start was cancelled or superseded before becoming active')
       }
 
-      // 3. Resolve mapping using strict exact display_id matching only
-      const resolved = resolveSourceForDisplay(trimmedId, config.displays, sources)
+      // 3. Resolve mapping: if sources have empty display_id and on Windows, query physical device coordinates
+      let windowsDevices: WindowsDisplayDevice[] | undefined
+      const hasPopulatedDisplayId = sources.some(
+        (s) => s.display_id !== undefined && s.display_id !== null && s.display_id.trim() !== ''
+      )
+
+      if (!hasPopulatedDisplayId && process.platform === 'win32') {
+        windowsDevices = await this.windowsDisplayQuery()
+      }
+
+      // Check if session was stopped or invalidated while windowsDisplayQuery was pending
+      if (this.sessionGeneration !== currentGen || this.status !== 'starting') {
+        throw new Error('Capture start was cancelled or superseded before becoming active')
+      }
+
+      const resolved = resolveSourceForDisplay(trimmedId, config.displays, sources, windowsDevices)
 
       this.resolvedSourceId = resolved.sourceId
       this.activeDisplayId = trimmedId
