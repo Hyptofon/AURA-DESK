@@ -16,6 +16,10 @@ export interface AuraApi {
   setCaptureSelection(
     selection: CaptureSelection
   ): Promise<{ success: boolean; selection: CaptureSelection }>
+  startSession?(
+    selection?: CaptureSelection
+  ): Promise<{ success: boolean; status: SessionStatus; displayId?: string }>
+  stopSession?(): Promise<{ success: boolean; status: SessionStatus }>
   getDisplays?(): Promise<DisplayConfiguration>
   onDisplaysChanged?(callback: (config: DisplayConfiguration) => void): () => void
 }
@@ -45,6 +49,13 @@ export const auraApi: AuraApi = {
       IPC_CHANNELS.SESSION_SET_SELECTION,
       selection
     ),
+  startSession: (selection?: CaptureSelection) =>
+    invokeChannel<{ success: boolean; status: SessionStatus; displayId?: string }>(
+      IPC_CHANNELS.SESSION_START,
+      selection ? { selection } : undefined
+    ),
+  stopSession: () =>
+    invokeChannel<{ success: boolean; status: SessionStatus }>(IPC_CHANNELS.SESSION_STOP),
   getDisplays: () => invokeChannel<DisplayConfiguration>(IPC_CHANNELS.DISPLAYS_GET_ALL),
   onDisplaysChanged: (callback: (config: DisplayConfiguration) => void): (() => void) => {
     const listener = (_event: unknown, data: unknown) => {

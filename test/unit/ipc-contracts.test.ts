@@ -7,7 +7,11 @@ import {
   AppInfoSchema,
   DisplayBoundsSchema,
   DisplayInfoSchema,
-  DisplayConfigurationSchema
+  DisplayConfigurationSchema,
+  SessionStartRequestSchema,
+  SessionStartResponseSchema,
+  SessionStopResponseSchema,
+  CaptureStatusSchema
 } from '../../src/shared/contracts/ipc'
 
 describe('IPC Contracts & Schemas', () => {
@@ -16,7 +20,11 @@ describe('IPC Contracts & Schemas', () => {
       expect(isAllowedIpcChannel(IPC_CHANNELS.APP_GET_INFO)).toBe(true)
       expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_GET_STATE)).toBe(true)
       expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_SET_SELECTION)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_START)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_STOP)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_STATUS_CHANGED)).toBe(true)
       expect(isAllowedIpcChannel(IPC_CHANNELS.DISPLAYS_GET_ALL)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.DISPLAYS_CHANGED)).toBe(true)
     })
 
     it('rejects unauthorized or arbitrary channels', () => {
@@ -243,6 +251,95 @@ describe('IPC Contracts & Schemas', () => {
             count: 1,
             isMultiDisplay: false,
             extraProperty: 'not-allowed'
+          }).success
+        ).toBe(false)
+      })
+    })
+
+    describe('SessionStartRequestSchema', () => {
+      it('accepts undefined/empty payload', () => {
+        expect(SessionStartRequestSchema.safeParse(undefined).success).toBe(true)
+      })
+
+      it('accepts valid selection payload', () => {
+        expect(
+          SessionStartRequestSchema.safeParse({
+            selection: { mode: 'single', displayId: 'disp-1' }
+          }).success
+        ).toBe(true)
+      })
+
+      it('rejects extra properties', () => {
+        expect(
+          SessionStartRequestSchema.safeParse({
+            selection: { mode: 'both' },
+            unauthorizedKey: true
+          }).success
+        ).toBe(false)
+      })
+    })
+
+    describe('SessionStartResponseSchema & SessionStopResponseSchema', () => {
+      it('validates successful session start response', () => {
+        expect(
+          SessionStartResponseSchema.safeParse({
+            success: true,
+            status: 'active',
+            displayId: '101'
+          }).success
+        ).toBe(true)
+      })
+
+      it('validates successful session stop response', () => {
+        expect(
+          SessionStopResponseSchema.safeParse({
+            success: true,
+            status: 'idle'
+          }).success
+        ).toBe(true)
+      })
+
+      it('rejects invalid status values', () => {
+        expect(
+          SessionStopResponseSchema.safeParse({
+            success: true,
+            status: 'invalid-status'
+          }).success
+        ).toBe(false)
+      })
+    })
+
+    describe('CaptureStatusSchema', () => {
+      it('validates active capture status', () => {
+        expect(
+          CaptureStatusSchema.safeParse({
+            isActive: true,
+            activeDisplayId: '101',
+            frameCount: 10,
+            totalBytes: 10240,
+            lastError: null
+          }).success
+        ).toBe(true)
+      })
+
+      it('validates inactive capture status', () => {
+        expect(
+          CaptureStatusSchema.safeParse({
+            isActive: false,
+            activeDisplayId: null,
+            frameCount: 0,
+            totalBytes: 0
+          }).success
+        ).toBe(true)
+      })
+
+      it('rejects negative frameCount or bytes', () => {
+        expect(
+          CaptureStatusSchema.safeParse({
+            isActive: false,
+            activeDisplayId: null,
+            frameCount: -1,
+            totalBytes: 0
           }).success
         ).toBe(false)
       })

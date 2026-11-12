@@ -33,6 +33,8 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(typeof auraApi.setCaptureSelection).toBe('function')
       expect(typeof auraApi.getDisplays).toBe('function')
       expect(typeof auraApi.onDisplaysChanged).toBe('function')
+      expect(typeof auraApi.startSession).toBe('function')
+      expect(typeof auraApi.stopSession).toBe('function')
     })
 
     it('does not expose raw Node or Electron APIs on auraApi', () => {
@@ -92,6 +94,31 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_SET_SELECTION, selection)
       expect(result.success).toBe(true)
       expect(result.selection).toEqual(selection)
+    })
+
+    it('calls SESSION_START channel with optional selection and unwraps response', async () => {
+      const selection = { mode: 'single' as const, displayId: 'disp-01' }
+      mockInvoke.mockResolvedValueOnce({
+        ok: true,
+        data: { success: true, status: 'active', displayId: 'disp-01' }
+      })
+
+      const result = await auraApi.startSession!(selection)
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_START, { selection })
+      expect(result).toEqual({ success: true, status: 'active', displayId: 'disp-01' })
+    })
+
+    it('calls SESSION_STOP channel and unwraps response', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        ok: true,
+        data: { success: true, status: 'idle' }
+      })
+
+      const result = await auraApi.stopSession!()
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_STOP, undefined)
+      expect(result).toEqual({ success: true, status: 'idle' })
     })
 
     it('calls DISPLAYS_GET_ALL channel and unwraps display configuration data', async () => {

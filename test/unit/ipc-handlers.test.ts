@@ -251,6 +251,275 @@ describe('Main Process IPC Handlers', () => {
     })
   })
 
+  describe('SESSION_START and SESSION_STOP IPC Handlers', () => {
+    let mockCapturer: {
+      start: ReturnType<typeof vi.fn>
+      stop: ReturnType<typeof vi.fn>
+      isActive: ReturnType<typeof vi.fn>
+      getActiveDisplayId: ReturnType<typeof vi.fn>
+      getStatus: ReturnType<typeof vi.fn>
+      getLastError: ReturnType<typeof vi.fn>
+      onStatusChange: ReturnType<typeof vi.fn>
+    }
+    let currentMockStatus: string
+    let statusListener: ((status: string, error?: string) => void) | null = null
+
+    beforeEach(() => {
+      currentMockStatus = 'idle'
+      statusListener = null
+
+      mockCapturer = {
+        start: vi.fn().mockImplementation(async (id: string) => {
+          if (id === 'error-id') {
+            currentMockStatus = 'error'
+            throw new Error('Display not found')
+          }
+          currentMockStatus = 'active'
+        }),
+        stop: vi.fn().mockImplementation(async () => {
+          currentMockStatus = 'idle'
+        }),
+        isActive: vi.fn().mockImplementation(() => currentMockStatus === 'active'),
+        getActiveDisplayId: vi.fn().mockReturnValue(null),
+        getStatus: vi.fn().mockImplementation(() => currentMockStatus),
+        getLastError: vi.fn().mockReturnValue(null),
+        onStatusChange: vi.fn().mockImplementation((fn) => {
+          statusListener = fn
+          return () => {
+            statusListener = null
+          }
+        })
+      }
+
+      registerIpcHandlers(
+        mockIpc,
+        defaultContext,
+        defaultDisplayManager,
+        mockCapturer as never
+      )
+    })
+
+    it('starts single display capture session successfully', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })) as IpcResponse<{ success: boolean; status: string; displayId: string }>
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.data.success).toBe(true)
+        expect(res.data.status).toBe('active')
+        expect(res.data.displayId).toBe('101')
+      }
+      expect(mockCapturer.start).toHaveBeenCalledWith('101')
+    })
+
+    it('rejects mode both with UNSUPPORTED_MODE for milestone P1.2', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler(makeValidEvent(), {
+        selection: { mode: 'both' }
+      })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNSUPPORTED_MODE')
+        expect(res.error.message).toContain('P1.3')
+      }
+      expect(mockCapturer.start).not.toHaveBeenCalled()
+    })
+
+    it('returns CAPTURE_START_FAILED when capturer fails to start', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: 'error-id' }
+      })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('CAPTURE_START_FAILED')
+        expect(res.error.message).toContain('Display not found')
+      }
+    })
+
+    it('stops active session cleanly and transitions status to idle', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+      const res = (await handler(makeValidEvent())) as IpcResponse<{
+        success: boolean
+        status: string
+      }>
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.data.success).toBe(true)
+        expect(res.data.status).toBe('idle')
+      }
+      expect(mockCapturer.stop).toHaveBeenCalledTimes(1)
+    })
+
+    it('denies SESSION_START when sender is unauthorized', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await handler({ sender: { id: 999 } })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
+      }
+    })
+
+    it('denies SESSION_STOP when sender is unauthorized', async () => {
+      const handler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+      const res = (await handler({ sender: { id: 999 } })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('UNAUTHORIZED_SENDER')
+      }
+    })
+
+    it('SESSION_GET_STATE queries capturer status as authoritative single source of truth', async () => {
+      const getStateHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const startHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+
+      // Initially idle
+      let stateRes = (await getStateHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stateRes.ok).toBe(true)
+      if (stateRes.ok) {
+        expect(stateRes.data.status).toBe('idle')
+      }
+
+      // Start session -> becomes active
+      await startHandler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })
+
+      stateRes = (await getStateHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stateRes.ok).toBe(true)
+      if (stateRes.ok) {
+        expect(stateRes.data.status).toBe('active')
+      }
+    })
+
+    it('synchronizes status to error when capturer stops unexpectedly and recovers on stop', async () => {
+      const getStateHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_GET_STATE)!
+      const startHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const stopHandler = mockIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+
+      // Start session
+      await startHandler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })
+
+      // Simulate unexpected stop (e.g. display loss or source disappeared)
+      currentMockStatus = 'error'
+
+      const stateRes = (await getStateHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stateRes.ok).toBe(true)
+      if (stateRes.ok) {
+        expect(stateRes.data.status).toBe('error')
+      }
+
+      // Recovery via explicit stop call
+      const stopRes = (await stopHandler(makeValidEvent())) as IpcResponse<{ status: string }>
+      expect(stopRes.ok).toBe(true)
+      if (stopRes.ok) {
+        expect(stopRes.data.status).toBe('idle')
+      }
+    })
+
+    it('fails closed and returns error if capturer.start() does not reach active state', async () => {
+      let mockStatus = 'idle'
+      const customCapturer: ScreenCapturePort = {
+        start: vi.fn().mockImplementation(async () => {
+          mockStatus = 'idle'
+        }),
+        stop: vi.fn().mockImplementation(async () => {
+          mockStatus = 'idle'
+        }),
+        getStatus: () => mockStatus as SessionStatus,
+        getLastError: () => null,
+        onStatusChange: () => () => {},
+        getLatestFrame: () => null,
+        getFrameHistory: () => [],
+        getBufferStats: () => ({ frameCount: 0, totalBytes: 0, oldestTimestamp: null, newestTimestamp: null, displayId: null }),
+        isActive: () => mockStatus === 'active',
+        getActiveDisplayId: () => null
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(customIpc, { trustedWebContents: defaultWebContents }, undefined, customCapturer)
+
+      const startHandler = customIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
+      const res = (await startHandler(makeValidEvent(), {
+        selection: { mode: 'single', displayId: '101' }
+      })) as IpcResponse<unknown>
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.error.code).toBe('CAPTURE_START_ABORTED')
+        expect(res.error.message).toContain('did not reach active state')
+      }
+    })
+
+    it('properly awaits asynchronous stop before returning response', async () => {
+      let stopAwaited = false
+      const customCapturer: ScreenCapturePort = {
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockImplementation(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          stopAwaited = true
+        }),
+        getStatus: () => 'idle',
+        getLastError: () => null,
+        onStatusChange: () => () => {},
+        getLatestFrame: () => null,
+        getFrameHistory: () => [],
+        getBufferStats: () => ({ frameCount: 0, totalBytes: 0, oldestTimestamp: null, newestTimestamp: null, displayId: null }),
+        isActive: () => false,
+        getActiveDisplayId: () => null
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(customIpc, { trustedWebContents: defaultWebContents }, undefined, customCapturer)
+
+      const stopHandler = customIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
+      const res = (await stopHandler(makeValidEvent())) as IpcResponse<{ success: boolean; status: string }>
+
+      expect(stopAwaited).toBe(true)
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.data.success).toBe(true)
+        expect(res.data.status).toBe('idle')
+      }
+    })
+
+    it('forwards SESSION_STATUS_CHANGED event to trusted webContents on unexpected termination', () => {
+      const mockWebContentsWithSend = {
+        id: 1,
+        mainFrame: defaultMainFrame,
+        isDestroyed: vi.fn().mockReturnValue(false),
+        send: vi.fn()
+      }
+
+      registerIpcHandlers(
+        mockIpc,
+        {
+          trustedWebContents: mockWebContentsWithSend,
+          trustedOrigin: 'http://localhost:5173'
+        },
+        defaultDisplayManager,
+        mockCapturer as never
+      )
+
+      expect(statusListener).not.toBeNull()
+      statusListener!('error', 'SELECTED_DISPLAY_LOST')
+
+      expect(mockWebContentsWithSend.send).toHaveBeenCalledWith(
+        IPC_CHANNELS.SESSION_STATUS_CHANGED,
+        { status: 'error', error: 'SELECTED_DISPLAY_LOST' }
+      )
+    })
+  })
+
   describe('Fail-Closed Sender and Frame Authorization', () => {
     const untrustedWebContents = { id: 99, name: 'evil-webcontents' }
 

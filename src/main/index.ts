@@ -4,9 +4,11 @@ import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
 import { isAllowedNavigation } from './security/navigation-guard'
 import { DisplayManager, forwardDisplayEvents } from './displays/display-manager'
+import { SingleDisplayCapturer } from './capture/single-display-capturer'
 
 let mainWindow: BrowserWindow | null = null
 let displayManager: DisplayManager | null = null
+let singleDisplayCapturer: SingleDisplayCapturer | null = null
 
 function createWindow(): void {
   const isDev = Boolean(!app.isPackaged && process.env['ELECTRON_RENDERER_URL'])
@@ -22,7 +24,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#0D1218',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.cjs'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -55,6 +57,8 @@ function createWindow(): void {
   displayManager = new DisplayManager()
   displayManager.ensureListening()
 
+  singleDisplayCapturer = new SingleDisplayCapturer(displayManager)
+
   // Register typed IPC handlers bound to authorized window and top frame
   registerIpcHandlers(
     undefined,
@@ -68,7 +72,8 @@ function createWindow(): void {
           expectedHtmlPath: expectedHtmlUrl
         })
     },
-    displayManager
+    displayManager,
+    singleDisplayCapturer
   )
 
   // Forward validated display hotplug and metrics events to authorized window
@@ -77,6 +82,10 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     unsubscribeDisplays()
     unregisterIpcHandlers()
+    if (singleDisplayCapturer) {
+      void singleDisplayCapturer.stop()
+      singleDisplayCapturer = null
+    }
     displayManager?.stopListening()
     displayManager = null
     mainWindow = null
