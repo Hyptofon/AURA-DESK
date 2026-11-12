@@ -283,6 +283,91 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
       expect(capturer.getStatus()).toBe('idle')
     })
 
+    it('resolves real Windows dual-monitor sources via physical coordinates when display_id is empty and fails closed on coordinate mismatch', async () => {
+      const screenApi = new MockScreenApi()
+      // Primary at 0,0, Secondary at -1920,1 (matching real Windows host setup)
+      screenApi.displays = [createDisplay(1238924755, 0), {
+        id: 368940417,
+        label: '2475W1',
+        bounds: { x: -1920, y: 1, width: 1920, height: 1080 },
+        workArea: { x: -1920, y: 1, width: 1920, height: 1080 },
+        scaleFactor: 1.0,
+        rotation: 0
+      }]
+      const displayManager = new DisplayManager(screenApi)
+
+      // Sources have empty display_id (mimicking Windows 11 Chromium behavior)
+      const mockCapturer: DesktopCapturerLike = {
+        getSources: vi.fn().mockResolvedValue([
+          { id: 'screen:0:0', name: 'Екран 1', display_id: '' },
+          { id: 'screen:1:0', name: 'Екран 2', display_id: '' }
+        ])
+      }
+
+      const startCalls: CaptureTarget[] = []
+      const fakeBackend: FrameCaptureBackend = {
+        start: async (target) => {
+          startCalls.push(target)
+        },
+        captureFrame: async (target) => createValidCapturedFrame({ displayId: target.displayId })
+      }
+
+      const fakeWindowsQuery = vi.fn().mockResolvedValue([
+        {
+          deviceName: '\\\\.\\DISPLAY1',
+          displayIndex: 0,
+          bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          isPrimary: true
+        },
+        {
+          deviceName: '\\\\.\\DISPLAY2',
+          displayIndex: 1,
+          bounds: { x: -1920, y: 1, width: 1920, height: 1080 },
+          isPrimary: false
+        }
+      ])
+
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer,
+        backend: fakeBackend,
+        windowsDisplayQuery: fakeWindowsQuery
+      })
+
+      // 1. Primary monitor maps unambiguously to screen:0:0
+      await capturer.start('1238924755')
+      expect(capturer.getStatus()).toBe('active')
+      expect(startCalls[0].sourceId).toBe('screen:0:0')
+      expect(startCalls[0].displayId).toBe('1238924755')
+      await capturer.stop()
+
+      // 2. Secondary monitor maps unambiguously to screen:1:0
+      await capturer.start('368940417')
+      expect(capturer.getStatus()).toBe('active')
+      expect(startCalls[1].sourceId).toBe('screen:1:0')
+      expect(startCalls[1].displayId).toBe('368940417')
+      await capturer.stop()
+
+      // 3. Coordinate mismatch fails closed without silent primary fallback
+      const nonMatchingCapturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer,
+        backend: fakeBackend,
+        windowsDisplayQuery: vi.fn().mockResolvedValue([
+          {
+            deviceName: '\\\\.\\DISPLAY1',
+            displayIndex: 0,
+            bounds: { x: 9999, y: 9999, width: 100, height: 100 },
+            isPrimary: true
+          }
+        ])
+      })
+
+      await expect(nonMatchingCapturer.start('1238924755')).rejects.toThrow(
+        /no matching Windows display device coordinates found/
+      )
+      expect(nonMatchingCapturer.getStatus()).toBe('error')
+      await nonMatchingCapturer.stop()
+    })
+
     it('stop releases the actual backend capture resources and unregisters handler', async () => {
       let registeredHandler: unknown = () => {}
       const mockSession: MediaStreamSessionLike = {
