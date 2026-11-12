@@ -3,6 +3,12 @@ import type { DisplayBounds } from '../../shared/contracts/channels'
 
 export interface WindowsDisplayDevice {
   deviceName: string
+  /**
+   * Candidate 0-based device index derived from `\\.\DISPLAY<N>` (`N - 1`).
+   * Assumes WebRTC's `ScreenCapturerWinGdi` orders sources `screen:<index>:0`
+   * synchronously with Windows DISPLAY numbering; NOT universally proven across
+   * all multi-GPU/driver/virtual-display topologies without physical pixel verification.
+   */
   displayIndex: number
   bounds: DisplayBounds
   isPrimary: boolean
@@ -59,7 +65,10 @@ export function parseWindowsDisplayOutput(rawOutput: string): WindowsDisplayDevi
 
 /**
  * Queries the active Windows display devices from the operating system.
- * Returns the exact device names, 0-based WebRTC screen indices, and physical desktop coordinates.
+ * Returns device names, physical desktop coordinates, and candidate 0-based indices (`DISPLAY<N>` -> `N - 1`).
+ *
+ * Working assumption (NOT universally proven): assumes WebRTC `ScreenCapturerWinGdi`
+ * assigns `screen:<index>:0` in matching `DISPLAY<N>` order when `display_id` is empty.
  * Fails closed by returning an empty array on non-Windows platforms or query failure.
  */
 export async function queryWindowsDisplayDevices(
