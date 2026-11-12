@@ -22,17 +22,23 @@ export interface ResolvedSourceResult {
  * Strategy 1 (Preferred / Cross-platform):
  * Matches DesktopCapturerSource.display_id against targetDisplayId when display_id is non-empty.
  *
- * Strategy 2 (Windows Fallback when display_id is empty due to Chromium/Electron #42747):
- * Matches targetDisplay.bounds against OS-enumerated WindowsDisplayDevice physical coordinates.
- * Relies on the deterministic 1:1 hardware coordinate mapping between Windows display devices
- * (\\.\DISPLAY<N+1>, index N) and WebRTC capturer source ID ("screen:N:0").
+ * Strategy 2 (Windows Fallback ONLY when reliable direct display_id mapping is unavailable):
+ * Used strictly when NO enumerated source provides a non-empty display_id (e.g. Electron/Chromium
+ * #42747 under Windows GDI fallback). Matches unique targetDisplay.bounds against OS-enumerated
+ * WindowsDisplayDevice physical coordinates and maps candidate `\\.\DISPLAY<N>` (`N - 1`) to
+ * source ID `"screen:<index>:0"`.
+ *
+ * Working Assumption (NOT universally proven): Assumes `DISPLAY<N>` numbering corresponds 1:1
+ * to WebRTC's 0-based `screen:<index>:0` index on the host. This correspondence is an observed
+ * heuristic on tested setups rather than a universal OS invariant and must be verified on target
+ * hardware by physical test-pattern isolation checks.
  *
  * Invariants:
- * Unsafe fallbacks (arbitrary array indexing, name/label-only matching, synthetic pattern guessing,
- * or silent primary fallback) are strictly prohibited to prevent cross-display capture leakage.
- *
- * Fails closed if the display is not found, sources are empty, coordinates are ambiguous,
- * duplicates exist, or mapping cannot be proven.
+ * - Strategy 2 never runs when any source provides a non-empty direct display_id.
+ * - Unsafe fallbacks (arbitrary array indexing, name/label-only matching, synthetic pattern guessing,
+ *   or silent primary fallback) are strictly prohibited to prevent cross-display capture leakage.
+ * - Fails closed if the display is not found, sources are empty, bounds are invalid or shared by
+ *   multiple displays, coordinates are ambiguous, or mapping cannot be matched uniquely.
  */
 export function resolveSourceForDisplay(
   targetDisplayId: string,
@@ -79,8 +85,32 @@ export function resolveSourceForDisplay(
     )
   }
 
-  // Strategy 2: Windows display device physical coordinate matching when sources have empty display_id
-  if (windowsDevices && windowsDevices.length > 0) {
+  const hasReliableDisplayIds = sources.some(
+    (s) => s.display_id !== undefined && s.display_id !== null && String(s.display_id).trim() !== ''
+  )
+
+  // Strategy 2: Windows display device coordinate matching ONLY when reliable direct display_id mapping is unavailable
+  if (!hasReliableDisplayIds && windowsDevices && windowsDevices.length > 0) {
+    if (targetDisplay.bounds.width <= 0 || targetDisplay.bounds.height <= 0) {
+      throw new Error(
+        `Cannot resolve capture source: target display "${targetDisplayId}" has invalid bounds (${targetDisplay.bounds.width}x${targetDisplay.bounds.height})`
+      )
+    }
+
+    const displaysWithSameBounds = allDisplays.filter(
+      (d) =>
+        d.bounds.x === targetDisplay.bounds.x &&
+        d.bounds.y === targetDisplay.bounds.y &&
+        d.bounds.width === targetDisplay.bounds.width &&
+        d.bounds.height === targetDisplay.bounds.height
+    )
+
+    if (displaysWithSameBounds.length > 1) {
+      throw new Error(
+        `Ambiguous capture source: multiple enumerated displays share coordinates (${targetDisplay.bounds.x}, ${targetDisplay.bounds.y}, ${targetDisplay.bounds.width}x${targetDisplay.bounds.height}) for display "${targetDisplayId}"`
+      )
+    }
+
     const matchedDevices = windowsDevices.filter(
       (wd) =>
         wd.bounds.x === targetDisplay.bounds.x &&
@@ -97,8 +127,13 @@ export function resolveSourceForDisplay(
 
     if (matchedDevices.length === 1) {
       const matchedDevice = matchedDevices[0]
-      const expectedSourceId = `screen:${matchedDevice.displayIndex}:0`
+      if (!Number.isInteger(matchedDevice.displayIndex) || matchedDevice.displayIndex < 0) {
+        throw new Error(
+          `Cannot resolve capture source for display "${targetDisplayId}": invalid Windows device index (${matchedDevice.displayIndex})`
+        )
+      }
 
+      const expectedSourceId = `screen:${matchedDevice.displayIndex}:0`
       const matchingSources = sources.filter((s) => s.id === expectedSourceId)
       if (matchingSources.length === 1) {
         return {
