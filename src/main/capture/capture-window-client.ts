@@ -107,7 +107,8 @@ export function resolveCaptureHtmlPath(assetPathOverride?: string): string {
 }
 
 export function defaultCaptureWindowFactory(
-  optionsOrSession?: { session?: unknown } | unknown
+  optionsOrSession?: { session?: unknown } | unknown,
+  browserWindowConstructor?: new (options: unknown) => BrowserWindowLike
 ): BrowserWindowLike {
   try {
     const session =
@@ -115,9 +116,12 @@ export function defaultCaptureWindowFactory(
         ? (optionsOrSession as { session: unknown }).session
         : optionsOrSession
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const electron = require('electron')
-    const BrowserWindow = electron?.BrowserWindow
+    let BrowserWindow = browserWindowConstructor
+    if (!BrowserWindow) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const electron = require('electron')
+      BrowserWindow = electron?.BrowserWindow
+    }
     if (!BrowserWindow) {
       throw new Error('Electron BrowserWindow is not available in current environment')
     }
