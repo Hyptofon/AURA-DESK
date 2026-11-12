@@ -130,4 +130,154 @@ describe('Display Source Resolver', () => {
       /targetDisplayId must be a non-empty string/
     )
   })
+
+  describe('Windows Device Coordinates Fallback Strategy', () => {
+    const realWindowsDisplays: DisplayInfo[] = [
+      {
+        id: '1238924755',
+        label: 'Display 1 (Primary)',
+        isPrimary: true,
+        bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+        workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+        scaleFactor: 1.0,
+        rotation: 0
+      },
+      {
+        id: '368940417',
+        label: '2475W1',
+        isPrimary: false,
+        bounds: { x: -1920, y: 1, width: 1920, height: 1080 },
+        workArea: { x: -1920, y: 1, width: 1920, height: 1080 },
+        scaleFactor: 1.0,
+        rotation: 0
+      }
+    ]
+
+    const realWindowsSources: DesktopCapturerSourceLike[] = [
+      { id: 'screen:0:0', name: 'Екран 1', display_id: '' },
+      { id: 'screen:1:0', name: 'Екран 2', display_id: '' }
+    ]
+
+    const realWindowsDevices = [
+      {
+        deviceName: '\\\\.\\DISPLAY1',
+        displayIndex: 0,
+        bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+        isPrimary: true
+      },
+      {
+        deviceName: '\\\\.\\DISPLAY2',
+        displayIndex: 1,
+        bounds: { x: -1920, y: 1, width: 1920, height: 1080 },
+        isPrimary: false
+      }
+    ]
+
+    it('resolves primary display via physical device coordinate matching when display_id is empty', () => {
+      const result = resolveSourceForDisplay(
+        '1238924755',
+        realWindowsDisplays,
+        realWindowsSources,
+        realWindowsDevices
+      )
+
+      expect(result.sourceId).toBe('screen:0:0')
+      expect(result.sourceName).toBe('Екран 1')
+      expect(result.displayId).toBe('1238924755')
+      expect(result.strategy).toBe('windows_device_bounds_match')
+    })
+
+    it('resolves secondary display with negative offset via physical device coordinate matching', () => {
+      const result = resolveSourceForDisplay(
+        '368940417',
+        realWindowsDisplays,
+        realWindowsSources,
+        realWindowsDevices
+      )
+
+      expect(result.sourceId).toBe('screen:1:0')
+      expect(result.sourceName).toBe('Екран 2')
+      expect(result.displayId).toBe('368940417')
+      expect(result.strategy).toBe('windows_device_bounds_match')
+    })
+
+    it('prefers exact_display_id_match over coordinate matching when display_id is available', () => {
+      const sourcesWithId: DesktopCapturerSourceLike[] = [
+        { id: 'screen:0:0', name: 'Screen 1', display_id: '1238924755' },
+        { id: 'screen:1:0', name: 'Screen 2', display_id: '368940417' }
+      ]
+
+      const result = resolveSourceForDisplay(
+        '1238924755',
+        realWindowsDisplays,
+        sourcesWithId,
+        realWindowsDevices
+      )
+
+      expect(result.strategy).toBe('exact_display_id_match')
+      expect(result.sourceId).toBe('screen:0:0')
+    })
+
+    it('fails closed when multiple Windows devices share identical coordinates (ambiguous bounds)', () => {
+      const duplicateDevices = [
+        {
+          deviceName: '\\\\.\\DISPLAY1',
+          displayIndex: 0,
+          bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          isPrimary: true
+        },
+        {
+          deviceName: '\\\\.\\DISPLAY2',
+          displayIndex: 1,
+          bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          isPrimary: false
+        }
+      ]
+
+      expect(() =>
+        resolveSourceForDisplay(
+          '1238924755',
+          realWindowsDisplays,
+          realWindowsSources,
+          duplicateDevices
+        )
+      ).toThrow(/Ambiguous capture source: multiple Windows display devices matched coordinates/)
+    })
+
+    it('fails closed when matching Windows device source is missing from desktopCapturer sources', () => {
+      // Sources only have screen:9:0 instead of screen:0:0
+      const incompleteSources: DesktopCapturerSourceLike[] = [
+        { id: 'screen:9:0', name: 'Other Screen', display_id: '' }
+      ]
+
+      expect(() =>
+        resolveSourceForDisplay(
+          '1238924755',
+          realWindowsDisplays,
+          incompleteSources,
+          realWindowsDevices
+        )
+      ).toThrow(/not found in desktopCapturer sources/)
+    })
+
+    it('fails closed when target display coordinates do not match any Windows device', () => {
+      const nonMatchingDevices = [
+        {
+          deviceName: '\\\\.\\DISPLAY1',
+          displayIndex: 0,
+          bounds: { x: 9999, y: 9999, width: 100, height: 100 },
+          isPrimary: true
+        }
+      ]
+
+      expect(() =>
+        resolveSourceForDisplay(
+          '1238924755',
+          realWindowsDisplays,
+          realWindowsSources,
+          nonMatchingDevices
+        )
+      ).toThrow(/no matching Windows display device coordinates found/)
+    })
+  })
 })
