@@ -481,6 +481,26 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
       // will-navigate must guard navigation with isAllowedNavigation
       expect(mainIndexCode).toMatch(/will-navigate[\s\S]*?isAllowedNavigation/)
     })
+
+    it('enforces sandboxed CommonJS preload bundle configuration across main and build config', () => {
+      const mainIndexCode = readSrc('src/main/index.ts')
+      const configCode = readSrc('electron.vite.config.ts')
+
+      // Main window webPreferences must reference index.cjs because Chromium sandbox rejects ESM preloads
+      expect(mainIndexCode).toMatch(/preload:\s*join\(__dirname,\s*['"]\.\.\/preload\/index\.cjs['"]\)/)
+
+      // electron-vite config must explicitly emit CommonJS with .cjs extension
+      expect(configCode).toMatch(/format:\s*['"]cjs['"]/)
+      expect(configCode).toMatch(/entryFileNames:\s*['"]\[name\]\.cjs['"]/)
+
+      // If out/preload has been built, index.cjs must exist and not contain bare import declarations
+      const builtPreloadCjs = path.join(rootDir, 'out/preload/index.cjs')
+      if (fs.existsSync(builtPreloadCjs)) {
+        const content = fs.readFileSync(builtPreloadCjs, 'utf-8')
+        expect(content).toContain('require("electron")')
+        expect(content).not.toMatch(/^import\s+/m)
+      }
+    })
   })
 
   describe('Capture Document & Build Artifact Availability Invariants', () => {
