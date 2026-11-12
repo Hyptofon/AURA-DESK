@@ -382,6 +382,66 @@ describe('SingleDisplayCapturer', () => {
     expect(capturer.getStatus()).toBe('idle')
   })
 
+  it('hotplug: prevents new capture start from overlapping with in-flight asynchronous backend teardown', async () => {
+    let stopResolver: () => void = () => {}
+    let backendStopCompleted = false
+    const callOrder: string[] = []
+
+    const slowTeardownBackend: FrameCaptureBackend = {
+      start: async (target) => {
+        callOrder.push(`start:${target.displayId}`)
+      },
+      captureFrame: async (target) => createValidCapturedFrame({ displayId: target.displayId }),
+      stop: async () => {
+        callOrder.push('stop:begin')
+        if (!backendStopCompleted) {
+          await new Promise<void>((resolve) => {
+            stopResolver = resolve
+          })
+          backendStopCompleted = true
+        }
+        callOrder.push('stop:end')
+      }
+    }
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: slowTeardownBackend
+    })
+
+    await capturer.start('202')
+    expect(capturer.getStatus()).toBe('active')
+
+    // Disconnect display 202 -> triggers handleAbruptTermination
+    mockScreen.displays = [createDisplay(101, 0)]
+    mockScreen.emit('display-removed', {}, createDisplay(202, 1920))
+
+    // State synchronously transitions to error and flushes frames
+    expect(capturer.getStatus()).toBe('error')
+    expect(backendStopCompleted).toBe(false)
+    expect(callOrder).toContain('stop:begin')
+
+    // Now invoke start on remaining display 101 while previous backend stop is pending
+    const newStartPromise = capturer.start('101')
+
+    // Verify new start did not execute backend.start yet
+    expect(callOrder).not.toContain('start:101')
+
+    // Release the slow backend stop
+    stopResolver()
+    await newStartPromise
+
+    // Verify ordering: stop:end happened before start:101
+    expect(callOrder).toEqual(['start:202', 'stop:begin', 'stop:end', 'start:101'])
+    expect(capturer.getStatus()).toBe('active')
+    expect(capturer.getActiveDisplayId()).toBe('101')
+
+    // Clean up
+    stopResolver()
+    await capturer.stop()
+    expect(capturer.getStatus()).toBe('idle')
+  })
+
   it('handles backend capture failure by entering error state and aborting cleanly', async () => {
     fakeBackend.customHandler = async () => {
       throw new Error('OS capture device disconnected')
