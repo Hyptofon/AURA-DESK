@@ -15,7 +15,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
-    "test:ui": "vitest run src/renderer"
+    "test:ui": "vitest run src/renderer",
+    "test:electron-smoke": "node scripts/electron-smoke.cjs"
   },
   "dependencies": {
     "react": "^18.3.1",
