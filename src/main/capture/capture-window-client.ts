@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import { join } from 'node:path'
+import captureHtmlAsset from './capture.html?asset'
 import type {
   CapturedFrame,
   CaptureTarget,
@@ -33,23 +34,62 @@ export interface CaptureClientOptions {
   windowFactory?: CaptureWindowFactory
   htmlPath?: string
   expectedOrigin?: string
-  webExecutor?: (script: string) => Promise<unknown>
+  webExecutor?: (script: string, userGesture?: boolean) => Promise<unknown>
   frameProvider?: (target: CaptureTarget) => Promise<CapturedFrame>
   startTimeoutMs?: number
 }
 
 const DEFAULT_START_TIMEOUT_MS = 5000
 
-export function resolveCaptureHtmlPath(): string {
+/**
+ * Resolves the absolute path to the capture surface document (capture.html).
+ *
+ * Checks:
+ * 1. Explicit asset path or electron-vite bundled asset (with content hash).
+ * 2. Query-stripped local path (for Vite dev / SSR).
+ * 3. Relative path from CWD (for development layout).
+ * 4. Standard fallback paths relative to __dirname.
+ *
+ * Fails closed with a clear error if the document cannot be found.
+ */
+export function resolveCaptureHtmlPath(assetPathOverride?: string): string {
+  const assetCandidate = assetPathOverride ?? captureHtmlAsset
+
+  if (typeof assetCandidate === 'string' && assetCandidate.length > 0) {
+    // 1. Direct path check (emitted by electron-vite in production build)
+    if (fs.existsSync(assetCandidate)) {
+      return assetCandidate
+    }
+
+    // 2. Strip query parameters (e.g. "?asset" in development / test environments)
+    const cleaned = assetCandidate.replace(/\?.*$/, '')
+    if (fs.existsSync(cleaned)) {
+      return cleaned
+    }
+
+    // 3. Dev server / SSR virtual path relative to current working directory
+    const relativeToRoot = cleaned.replace(/^[/\\]+/, '')
+    const fromCwd = join(process.cwd(), relativeToRoot)
+    if (fs.existsSync(fromCwd)) {
+      return fromCwd
+    }
+  }
+
+  // 4. Candidate locations relative to __dirname and process.cwd()
   const candidatePaths = [
     join(__dirname, 'capture.html'),
+    join(__dirname, 'chunks/capture.html'),
     join(__dirname, '../main/capture/capture.html'),
     join(process.cwd(), 'src/main/capture/capture.html')
   ]
   for (const p of candidatePaths) {
     if (fs.existsSync(p)) return p
   }
-  return join(__dirname, 'capture.html')
+
+  // 5. Fail closed if the capture surface document is genuinely missing
+  throw new Error(
+    'Capture surface document (capture.html) could not be resolved in build artifacts or development layout'
+  )
 }
 
 function defaultCaptureWindowFactory(session: unknown): BrowserWindowLike {
@@ -88,10 +128,11 @@ function defaultCaptureWindowFactory(session: unknown): BrowserWindowLike {
  * 1. Creates a real, isolated capture BrowserWindow bound to the dedicated capture session.
  * 2. Loads a secure local capture document (src/main/capture/capture.html).
  * 3. Enforces exact WebFrameMain and origin authorization (no generic top-level frame checks).
- * 4. Invokes navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }) via fixed script.
+ * 4. Invokes navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }) with user gesture.
  * 5. Owns the MediaStream and video track references.
  * 6. Extracts real PNG frame buffers via ImageCapture / OffscreenCanvas.
  * 7. Stops tracks and destroys capture window on stopStream().
+ * 8. Ensures guaranteed window cleanup and state reset on any startup failure.
  */
 export class CaptureWindowClient implements DisplayMediaStreamClient {
   private active = false
@@ -101,7 +142,7 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
   private readonly windowFactory: CaptureWindowFactory
   private readonly htmlPath: string
   private readonly expectedOrigin: string
-  private readonly webExecutor?: (script: string) => Promise<unknown>
+  private readonly webExecutor?: (script: string, userGesture?: boolean) => Promise<unknown>
   private readonly frameProvider?: (target: CaptureTarget) => Promise<CapturedFrame>
   private readonly startTimeoutMs: number
 
@@ -126,29 +167,49 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
 
     this.activeTarget = { ...target }
 
-    // If a custom webExecutor was supplied (e.g. specialized harness), use it directly
+    // If a custom webExecutor was supplied (e.g. specialized test harness), use it directly
     if (this.webExecutor) {
-      await this.executeStreamStartScript(this.webExecutor)
-      this.active = true
-      return
+      try {
+        await this.executeStreamStartScript((s, ug = true) => this.webExecutor!(s, ug))
+        this.active = true
+        return
+      } catch (err) {
+        await this.cleanupStream()
+        throw err
+      }
     }
 
     // Production path: create actual capture window and load secure local capture document
     try {
-      this.captureWindow = this.windowFactory({ session: this.session })
-      this.setupWindowSecurity(this.captureWindow)
-      await this.captureWindow.loadFile(this.htmlPath)
+      const win = this.windowFactory({ session: this.session })
+      this.captureWindow = win
+      this.setupWindowSecurity(win)
+
+      if (win.isDestroyed()) {
+        throw new Error('Capture window was destroyed immediately after creation')
+      }
+
+      await win.loadFile(this.htmlPath)
+
+      if (win.isDestroyed() || !this.captureWindow) {
+        throw new Error('Capture window was destroyed during document loading')
+      }
+
+      const executor = (script: string, userGesture = true) => {
+        if (!this.captureWindow || this.captureWindow.isDestroyed()) {
+          throw new Error('Capture window is destroyed')
+        }
+        return this.captureWindow.webContents.executeJavaScript(script, userGesture)
+      }
+
+      await this.executeStreamStartScript(executor)
+      this.active = true
     } catch (err) {
-      this.active = false
-      this.activeTarget = null
+      await this.cleanupStream()
       throw new Error(
         `CaptureWindowClient failed to initialize capture window: ${err instanceof Error ? err.message : String(err)}`
       )
     }
-
-    const executor = (script: string) => this.captureWindow!.webContents.executeJavaScript(script)
-    await this.executeStreamStartScript(executor)
-    this.active = true
   }
 
   public async grabFrame(target: CaptureTarget): Promise<CapturedFrame> {
@@ -163,7 +224,7 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
     const executor =
       this.webExecutor ??
       (this.captureWindow && !this.captureWindow.isDestroyed()
-        ? (script: string) => this.captureWindow!.webContents.executeJavaScript(script)
+        ? (script: string) => this.captureWindow!.webContents.executeJavaScript(script, false)
         : null)
 
     if (!executor) {
@@ -296,7 +357,7 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
   }
 
   private async executeStreamStartScript(
-    executor: (script: string) => Promise<unknown>
+    executor: (script: string, userGesture?: boolean) => Promise<unknown>
   ): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -308,11 +369,12 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
     })
 
     const startScriptPromise = (async () => {
-      const rawResult = await executor(`
+      const rawResult = await executor(
+        `
         (async () => {
           try {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-              return { ok: false, error: 'navigator.mediaDevices.getDisplayMedia is not available' };
+            if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+              return { ok: false, error: 'navigator.mediaDevices.getDisplayMedia is not available', errorName: 'NotSupportedError' };
             }
             const stream = await navigator.mediaDevices.getDisplayMedia({
               video: true,
@@ -321,20 +383,26 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
             const tracks = stream.getVideoTracks();
             const track = tracks[0];
             if (!track || track.readyState !== 'live') {
-              return { ok: false, error: 'Acquired video track is not live' };
+              return { ok: false, error: 'Acquired video track is not live', errorName: 'InvalidStateError' };
             }
             window.__activeStream = stream;
             window.__activeTrack = track;
             return { ok: true, trackId: track.id, label: track.label };
           } catch (err) {
-            return { ok: false, error: err ? String(err.message || err) : 'MediaStream request rejected' };
+            const name = (err && typeof err === 'object' && 'name' in err) ? String(err.name) : 'Error';
+            const message = (err && typeof err === 'object' && 'message' in err) ? String(err.message) : String(err);
+            return { ok: false, error: name + ': ' + message, errorName: name };
           }
         })()
-      `)
+      `,
+        true
+      )
 
-      const result = rawResult as { ok?: boolean; error?: string } | null
+      const result = rawResult as { ok?: boolean; error?: string; errorName?: string } | null
       if (!result || !result.ok) {
-        throw new Error(`Stream acquisition failed: ${result?.error ?? 'Unknown error'}`)
+        throw new Error(
+          `Stream acquisition failed${result?.errorName ? ` [${result.errorName}]` : ''}: ${result?.error ?? 'Unknown error'}`
+        )
       }
     })()
 
@@ -352,7 +420,7 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
     const executor =
       this.webExecutor ??
       (this.captureWindow && !this.captureWindow.isDestroyed()
-        ? (script: string) => this.captureWindow!.webContents.executeJavaScript(script)
+        ? (script: string) => this.captureWindow!.webContents.executeJavaScript(script, false)
         : null)
 
     if (executor && this.active) {
