@@ -507,4 +507,73 @@ describe('SingleDisplayCapturer', () => {
 
     await capturer.stop()
   })
+
+  it('resolves source via windowsDisplayQuery when desktopCapturer sources have empty display_id', async () => {
+    // Sources have empty display_id (mimicking Windows 11 behavior)
+    mockCapturer.getSources = vi.fn().mockResolvedValue([
+      { id: 'screen:0:0', name: 'Екран 1', display_id: '' },
+      { id: 'screen:1:0', name: 'Екран 2', display_id: '' }
+    ])
+
+    const fakeWindowsQuery = vi.fn().mockResolvedValue([
+      {
+        deviceName: '\\\\.\\DISPLAY1',
+        displayIndex: 0,
+        bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+        isPrimary: true
+      },
+      {
+        deviceName: '\\\\.\\DISPLAY2',
+        displayIndex: 1,
+        bounds: { x: 1920, y: 0, width: 1920, height: 1080 },
+        isPrimary: false
+      }
+    ])
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend,
+      windowsDisplayQuery: fakeWindowsQuery
+    })
+
+    // Start on secondary display '202' (bounds x: 1920, y: 0)
+    await capturer.start('202')
+
+    expect(capturer.getStatus()).toBe('active')
+    expect(fakeWindowsQuery).toHaveBeenCalledTimes(1)
+    expect(fakeBackend.startCalls[0].sourceId).toBe('screen:1:0')
+    expect(fakeBackend.startCalls[0].displayId).toBe('202')
+    expect(fakeBackend.startCalls[0].sourceName).toBe('Екран 2')
+
+    await capturer.stop()
+  })
+
+  it('fails closed when sources have empty display_id and windowsDisplayQuery returns no matching coordinates', async () => {
+    mockCapturer.getSources = vi.fn().mockResolvedValue([
+      { id: 'screen:0:0', name: 'Screen 1', display_id: '' }
+    ])
+
+    const fakeWindowsQuery = vi.fn().mockResolvedValue([
+      {
+        deviceName: '\\\\.\\DISPLAY1',
+        displayIndex: 0,
+        bounds: { x: 9999, y: 9999, width: 100, height: 100 },
+        isPrimary: true
+      }
+    ])
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: fakeBackend,
+      windowsDisplayQuery: fakeWindowsQuery
+    })
+
+    await expect(capturer.start('101')).rejects.toThrow(
+      /no matching Windows display device coordinates found/
+    )
+    expect(capturer.getStatus()).toBe('error')
+    expect(capturer.isActive()).toBe(false)
+
+    await capturer.stop()
+  })
 })
