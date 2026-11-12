@@ -8,6 +8,9 @@
  * Invoke ONLY after explicit authorization using:
  *   node scripts/verify-physical-isolation.cjs --authorize-physical-capture
  *
+ * Safe Preflight (no capture / no Electron window / cleans up ephemeral bundle):
+ *   node scripts/verify-physical-isolation.cjs --check-harness
+ *
  * Verification Scope:
  * 1. Displays two visually distinct, non-sensitive test patterns (Cobalt Blue on
  *    Primary display, Crimson Red on Secondary display).
@@ -26,6 +29,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const { spawn } = require('node:child_process');
 
 const rootDir = path.resolve(__dirname, '..');
@@ -34,6 +38,7 @@ const harnessBundlePath = path.join(artifactDir, '.physical-harness.cjs');
 const resultsJsonPath = path.join(artifactDir, 'physical-isolation-results.json');
 
 const AUTHORIZATION_FLAG = '--authorize-physical-capture';
+const CHECK_HARNESS_FLAG = '--check-harness';
 
 function evaluateOverallStatus(evidenceMatrix, options = {}) {
   const excludeKeys = new Set(options.excludeKeys || []);
@@ -58,32 +63,17 @@ function cleanupEphemeralBundle() {
   }
 }
 
-const isElectronProcess = Boolean(
-  process.versions.electron && process.type === 'browser'
-);
-
-if (!isElectronProcess) {
-  // =========================================================================
-  // Parent Node.js Orchestrator
-  // =========================================================================
-  const hasCliAuth = process.argv.includes(AUTHORIZATION_FLAG);
-  if (!hasCliAuth) {
-    console.error('[PHYSICAL VERIFY BLOCKED]: Explicit user authorization is required before starting real physical screen capture.');
-    console.error(`Re-run ONLY with explicit authorization flag: node scripts/verify-physical-isolation.cjs ${AUTHORIZATION_FLAG}`);
-    process.exit(2);
+function loadEsbuild() {
+  try {
+    return require('esbuild');
+  } catch (err) {
+    throw new Error(
+      `esbuild could not be resolved from declared devDependencies (vite/electron-vite): ${err instanceof Error ? err.message : String(err)}`
+    );
   }
+}
 
-  const esbuild = require('esbuild');
-  const electronExe = process.platform === 'win32'
-    ? path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron.exe')
-    : path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron');
-
-  if (!fs.existsSync(electronExe)) {
-    console.error(`[PHYSICAL VERIFY ERROR]: Electron executable not found at: ${electronExe}`);
-    process.exit(1);
-  }
-
-  // Locate capture.html asset (prefer built out/main chunk if present, else src/main/capture/capture.html)
+function resolveCaptureHtmlAsset() {
   let resolvedCaptureHtml = path.join(rootDir, 'src', 'main', 'capture', 'capture.html');
   const outMainChunksDir = path.join(rootDir, 'out', 'main', 'chunks');
   if (fs.existsSync(outMainChunksDir)) {
@@ -95,10 +85,14 @@ if (!isElectronProcess) {
   }
 
   if (!fs.existsSync(resolvedCaptureHtml)) {
-    console.error(`[PHYSICAL VERIFY ERROR]: capture.html not found at ${resolvedCaptureHtml}`);
-    process.exit(1);
+    throw new Error(`capture.html not found at ${resolvedCaptureHtml}`);
   }
 
+  return resolvedCaptureHtml;
+}
+
+async function compileHarnessBundle(resolvedCaptureHtml) {
+  const esbuild = loadEsbuild();
   fs.mkdirSync(artifactDir, { recursive: true });
 
   // Bundle production TypeScript modules ephemerally so Electron executes the exact production classes
@@ -109,100 +103,223 @@ if (!isElectronProcess) {
     export { samplePngPixels } from ${JSON.stringify(path.join(rootDir, 'src', 'main', 'capture', 'frame-pixel-sampler.ts'))};
   `;
 
-  try {
-    esbuild.buildSync({
-      stdin: {
-        contents: harnessEntrySource,
-        resolveDir: rootDir,
-        loader: 'ts'
-      },
-      bundle: true,
-      platform: 'node',
-      format: 'cjs',
-      outfile: harnessBundlePath,
-      external: ['electron'],
-      plugins: [
-        {
-          name: 'capture-html-asset-plugin',
-          setup(build) {
-            build.onResolve({ filter: /capture\.html\?asset$/ }, () => ({
-              path: resolvedCaptureHtml,
-              namespace: 'capture-html-asset'
-            }));
-            build.onLoad({ filter: /.*/, namespace: 'capture-html-asset' }, (args) => ({
-              contents: `export default ${JSON.stringify(args.path)};`,
-              loader: 'js'
-            }));
-          }
+  await esbuild.build({
+    stdin: {
+      contents: harnessEntrySource,
+      resolveDir: rootDir,
+      loader: 'ts'
+    },
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: harnessBundlePath,
+    external: ['electron'],
+    plugins: [
+      {
+        name: 'capture-html-asset-plugin',
+        setup(build) {
+          build.onResolve({ filter: /capture\.html\?asset$/ }, () => ({
+            path: resolvedCaptureHtml,
+            namespace: 'capture-html-asset'
+          }));
+          build.onLoad({ filter: /.*/, namespace: 'capture-html-asset' }, (args) => ({
+            contents: `export default ${JSON.stringify(args.path)};`,
+            loader: 'js'
+          }));
         }
-      ]
-    });
-  } catch (err) {
-    console.error('[PHYSICAL VERIFY ERROR]: Failed to compile production harness bundle:', err);
-    cleanupEphemeralBundle();
-    process.exit(1);
+      }
+    ]
+  });
+}
+
+function validateCompiledHarnessBundle(bundlePath) {
+  if (!fs.existsSync(bundlePath)) {
+    throw new Error(`Compiled harness bundle missing at ${bundlePath}`);
   }
 
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  env.AURA_PHYSICAL_CAPTURE_AUTHORIZED = '1';
+  const stat = fs.statSync(bundlePath);
+  if (stat.size <= 0) {
+    throw new Error(`Compiled harness bundle at ${bundlePath} is empty (0 bytes)`);
+  }
 
-  console.log('[PHYSICAL VERIFY]: Launching Electron for supervised dual-monitor physical test-pattern capture...');
-  const child = spawn(electronExe, [__filename, AUTHORIZATION_FLAG], {
-    env,
-    stdio: 'inherit',
-    cwd: rootDir
-  });
+  const code = fs.readFileSync(bundlePath, 'utf-8');
 
-  let timedOut = false;
-  const timeoutTimer = setTimeout(() => {
-    timedOut = true;
-    console.error('[PHYSICAL VERIFY ERROR]: Timed out after 30 seconds. Terminating Electron.');
-    child.kill('SIGTERM');
-  }, 30000);
+  // Verify JavaScript syntax via VM compilation
+  new vm.Script(code, { filename: bundlePath });
 
-  child.on('exit', (code, signal) => {
-    clearTimeout(timeoutTimer);
+  // Verify CJS module wrapper execution with stubbed 'electron' (never touches real Electron/MediaStream)
+  const moduleStub = { exports: {} };
+  const safeRequire = (specifier) => {
+    if (specifier === 'electron') {
+      return {};
+    }
+    return require(specifier);
+  };
+  const fn = new Function('exports', 'require', 'module', '__filename', '__dirname', code);
+  fn(moduleStub.exports, safeRequire, moduleStub, bundlePath, path.dirname(bundlePath));
+
+  const exported = moduleStub.exports;
+  const requiredExports = [
+    'DisplayManager',
+    'SingleDisplayCapturer',
+    'MediaStreamDisplayCaptureBackend',
+    'samplePngPixels'
+  ];
+
+  for (const name of requiredExports) {
+    if (typeof exported?.[name] !== 'function') {
+      throw new Error(`Compiled CJS harness missing expected function export "${name}"`);
+    }
+  }
+
+  return {
+    byteLength: stat.size,
+    exports: requiredExports
+  };
+}
+
+const isElectronProcess = Boolean(
+  process.versions.electron && process.type === 'browser'
+);
+
+if (!isElectronProcess) {
+  // =========================================================================
+  // Parent Node.js Orchestrator
+  // =========================================================================
+  const hasCheckHarness = process.argv.includes(CHECK_HARNESS_FLAG);
+  const hasCliAuth = process.argv.includes(AUTHORIZATION_FLAG);
+
+  async function runPreflightCheck() {
+    try {
+      const resolvedCaptureHtml = resolveCaptureHtmlAsset();
+      await compileHarnessBundle(resolvedCaptureHtml);
+      const validation = validateCompiledHarnessBundle(harnessBundlePath);
+      console.log('[HARNESS PREFLIGHT]: PASS');
+      console.log(`[HARNESS PREFLIGHT]: capture.html resolved to: ${resolvedCaptureHtml}`);
+      console.log(`[HARNESS PREFLIGHT]: CJS bundle compiled (${validation.byteLength} bytes) and verified exports: ${validation.exports.join(', ')}`);
+      console.log('[HARNESS PREFLIGHT]: No Electron capture window launched and no MediaStream requested.');
+      return 0;
+    } catch (err) {
+      console.error('[HARNESS PREFLIGHT ERROR]:', err);
+      return 1;
+    } finally {
+      cleanupEphemeralBundle();
+    }
+  }
+
+  async function runAuthorizedPhysicalCapture() {
+    const electronExe = process.platform === 'win32'
+      ? path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron.exe')
+      : path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron');
+
+    if (!fs.existsSync(electronExe)) {
+      console.error(`[PHYSICAL VERIFY ERROR]: Electron executable not found at: ${electronExe}`);
+      return 1;
+    }
+
+    try {
+      const resolvedCaptureHtml = resolveCaptureHtmlAsset();
+      await compileHarnessBundle(resolvedCaptureHtml);
+      validateCompiledHarnessBundle(harnessBundlePath);
+    } catch (err) {
+      console.error('[PHYSICAL VERIFY ERROR]: Failed to compile or validate production harness bundle:', err);
+      cleanupEphemeralBundle();
+      return 1;
+    }
+
+    const env = { ...process.env };
+    delete env.ELECTRON_RUN_AS_NODE;
+    env.AURA_PHYSICAL_CAPTURE_AUTHORIZED = '1';
+
+    console.log('[PHYSICAL VERIFY]: Launching Electron for supervised dual-monitor physical test-pattern capture...');
+
+    return await new Promise((resolveExitCode) => {
+      const child = spawn(electronExe, [__filename, AUTHORIZATION_FLAG], {
+        env,
+        stdio: 'inherit',
+        cwd: rootDir
+      });
+
+      let timedOut = false;
+      const timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        console.error('[PHYSICAL VERIFY ERROR]: Timed out after 30 seconds. Terminating Electron.');
+        child.kill('SIGTERM');
+      }, 30000);
+
+      child.on('error', (spawnErr) => {
+        clearTimeout(timeoutTimer);
+        cleanupEphemeralBundle();
+        console.error('[PHYSICAL VERIFY ERROR]: Failed to spawn Electron process:', spawnErr);
+        resolveExitCode(1);
+      });
+
+      child.on('exit', (code, signal) => {
+        clearTimeout(timeoutTimer);
+        cleanupEphemeralBundle();
+
+        const cleanProcessExit = !timedOut && signal === null && code === 0;
+        let report = null;
+        if (fs.existsSync(resultsJsonPath)) {
+          try {
+            report = JSON.parse(fs.readFileSync(resultsJsonPath, 'utf-8'));
+          } catch (err) {
+            console.error('[PHYSICAL VERIFY ERROR]: Failed to read verification JSON report:', err.message);
+          }
+        }
+
+        if (report && report.checks) {
+          report.checks.processCleanup = {
+            mandatory: true,
+            applicable: true,
+            expected: 'Supervised Electron process exits cleanly with code 0',
+            actual: cleanProcessExit
+              ? 'Clean exit (code=0, signal=null, timedOut=false)'
+              : `Failed exit (code=${code}, signal=${signal}, timedOut=${timedOut})`,
+            status: cleanProcessExit ? 'PASS' : 'FAIL'
+          };
+          report.verificationStatus = evaluateOverallStatus(report.checks);
+
+          try {
+            fs.writeFileSync(resultsJsonPath, JSON.stringify(report, null, 2), 'utf-8');
+          } catch (err) {
+            console.error('[PHYSICAL VERIFY ERROR]: Failed to finalize report JSON:', err.message);
+          }
+
+          console.log('[PHYSICAL VERIFY]: Finalized Supervised Checks:');
+          console.table(report.checks);
+          console.log(`[PHYSICAL VERIFY]: Overall Physical Source Isolation Status: ${report.verificationStatus}`);
+        }
+
+        if (!cleanProcessExit || !report || report.verificationStatus !== 'PASS') {
+          resolveExitCode(code && code !== 0 ? code : 1);
+          return;
+        }
+
+        resolveExitCode(0);
+      });
+    });
+  }
+
+  (async () => {
+    if (hasCheckHarness) {
+      const code = await runPreflightCheck();
+      process.exit(code);
+    }
+
+    if (!hasCliAuth) {
+      console.error('[PHYSICAL VERIFY BLOCKED]: Explicit user authorization is required before starting real physical screen capture.');
+      console.error(`Re-run ONLY with explicit authorization flag: node scripts/verify-physical-isolation.cjs ${AUTHORIZATION_FLAG}`);
+      console.error(`For safe preflight harness compilation without capture, run: node scripts/verify-physical-isolation.cjs ${CHECK_HARNESS_FLAG}`);
+      process.exit(2);
+    }
+
+    const code = await runAuthorizedPhysicalCapture();
+    process.exit(code);
+  })().catch((err) => {
+    console.error('[PHYSICAL VERIFY ERROR]: Unexpected orchestrator failure:', err);
     cleanupEphemeralBundle();
-
-    const cleanProcessExit = !timedOut && signal === null && code === 0;
-    let report = null;
-    if (fs.existsSync(resultsJsonPath)) {
-      try {
-        report = JSON.parse(fs.readFileSync(resultsJsonPath, 'utf-8'));
-      } catch (err) {
-        console.error('[PHYSICAL VERIFY ERROR]: Failed to read verification JSON report:', err.message);
-      }
-    }
-
-    if (report && report.checks) {
-      report.checks.processCleanup = {
-        mandatory: true,
-        applicable: true,
-        expected: 'Supervised Electron process exits cleanly with code 0',
-        actual: cleanProcessExit
-          ? 'Clean exit (code=0, signal=null, timedOut=false)'
-          : `Failed exit (code=${code}, signal=${signal}, timedOut=${timedOut})`,
-        status: cleanProcessExit ? 'PASS' : 'FAIL'
-      };
-      report.verificationStatus = evaluateOverallStatus(report.checks);
-
-      try {
-        fs.writeFileSync(resultsJsonPath, JSON.stringify(report, null, 2), 'utf-8');
-      } catch (err) {
-        console.error('[PHYSICAL VERIFY ERROR]: Failed to finalize report JSON:', err.message);
-      }
-
-      console.log('[PHYSICAL VERIFY]: Finalized Supervised Checks:');
-      console.table(report.checks);
-      console.log(`[PHYSICAL VERIFY]: Overall Physical Source Isolation Status: ${report.verificationStatus}`);
-    }
-
-    if (!cleanProcessExit || !report || report.verificationStatus !== 'PASS') {
-      process.exit(code && code !== 0 ? code : 1);
-    }
-
-    process.exit(0);
+    process.exit(1);
   });
 } else {
   // =========================================================================
