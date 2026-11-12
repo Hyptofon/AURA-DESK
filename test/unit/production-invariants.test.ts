@@ -5,6 +5,7 @@ import {
   SingleDisplayCapturer,
   type DesktopCapturerLike
 } from '../../src/main/capture/single-display-capturer'
+import { CaptureWindowClient } from '../../src/main/capture/capture-window-client'
 import {
   MediaStreamDisplayCaptureBackend,
   type MediaStreamSessionLike,
@@ -125,7 +126,10 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
       const backend = new MediaStreamDisplayCaptureBackend({
         session: mockSession,
         isAuthorizedFrame: (frame) => frame === 'authorized-frame',
-        frameExtractor: async (target) => createValidCapturedFrame({ displayId: target.displayId })
+        frameExtractor: async (target) => createValidCapturedFrame({ displayId: target.displayId }),
+        client: new CaptureWindowClient({
+          webExecutor: async () => ({ ok: true })
+        })
       })
 
       // Start capture for display 101 (screen:0:0)
@@ -289,7 +293,10 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
 
       const backend = new MediaStreamDisplayCaptureBackend({
         session: mockSession,
-        frameExtractor: async (target) => createValidCapturedFrame({ displayId: target.displayId })
+        frameExtractor: async (target) => createValidCapturedFrame({ displayId: target.displayId }),
+        client: new CaptureWindowClient({
+          webExecutor: async () => ({ ok: true })
+        })
       })
 
       let trackStopped = false
@@ -418,6 +425,34 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
       // Frame buffer remains clean with 0 stale frames
       expect(capturer.getLatestFrame()).toBeNull()
       expect(capturer.getFrameHistory().length).toBe(0)
+    })
+
+    it('fails immediately when production capturer attempts to capture without an Electron window context', async () => {
+      const screenApi = new MockScreenApi()
+      screenApi.displays = [createDisplay(101, 0)]
+      const displayManager = new DisplayManager(screenApi)
+
+      const mockCapturer: DesktopCapturerLike = {
+        getSources: vi.fn().mockResolvedValue([
+          { id: 'screen:0:0', name: 'Display 101', display_id: '101' }
+        ])
+      }
+
+      // Default SingleDisplayCapturer uses production MediaStreamDisplayCaptureBackend and CaptureWindowClient
+      const capturer = new SingleDisplayCapturer(displayManager, {
+        capturerApi: mockCapturer
+      })
+
+      // When running in node environment without Electron BrowserWindow, must fail closed immediately
+      await expect(capturer.start('101')).rejects.toThrow(
+        /CaptureWindowClient failed to initialize capture window/
+      )
+      expect(capturer.getStatus()).toBe('error')
+      expect(capturer.isActive()).toBe(false)
+      expect(capturer.getLatestFrame()).toBeNull()
+
+      await capturer.stop()
+      expect(capturer.getStatus()).toBe('idle')
     })
   })
 
