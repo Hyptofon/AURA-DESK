@@ -41,6 +41,17 @@ export interface FrameCaptureBackend {
 }
 
 /**
+ * Stream client port responsible for requesting MediaStream via getDisplayMedia(),
+ * maintaining video tracks, extracting frame buffers, and tearing down hardware handles.
+ */
+export interface DisplayMediaStreamClient {
+  startStream(target: CaptureTarget): Promise<void>
+  grabFrame(target: CaptureTarget): Promise<CapturedFrame>
+  stopStream(): Promise<void>
+  isStreamActive(): boolean
+}
+
+/**
  * Ring buffer configuration options.
  */
 export interface FrameBufferOptions {
