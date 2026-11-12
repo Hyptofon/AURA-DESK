@@ -1,8 +1,10 @@
 import type {
   CapturedFrame,
   CaptureTarget,
+  DisplayMediaStreamClient,
   FrameCaptureBackend
 } from '../../shared/contracts/capture'
+import { CaptureWindowClient } from './capture-window-client'
 
 export interface DisplayMediaRequest {
   frame: unknown | null
@@ -19,7 +21,7 @@ export interface DisplayStreams {
 
 export interface MediaStreamSessionLike {
   setDisplayMediaRequestHandler(
-    handler: ((request: DisplayMediaRequest, callback: (streams: DisplayStreams) => void) => void) | null
+    handler: ((request: DisplayMediaRequest, callback: (streams: DisplayStreams | null) => void) => void) | null
   ): void
 }
 
@@ -30,15 +32,20 @@ export interface MediaStreamBackendOptions {
   authorizedOrigin?: string
   isAuthorizedFrame?: (frame: unknown, origin: string) => boolean
   frameExtractor?: FrameExtractor
+  client?: DisplayMediaStreamClient
 }
 
 /**
- * Lazily resolve default Electron session in production without breaking in Node/test environments.
+ * Resolves dedicated in-memory isolated session partition for capture.
+ * Never pollutes or exposes the default system session.
  */
-function resolveDefaultSession(): MediaStreamSessionLike | null {
+function resolveCaptureSession(): MediaStreamSessionLike | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const electron = require('electron')
+    if (electron?.session?.fromPartition) {
+      return electron.session.fromPartition('in-memory:aura-capture', { cache: false })
+    }
     return electron?.session?.defaultSession ?? null
   } catch {
     return null
@@ -51,26 +58,42 @@ function resolveDefaultSession(): MediaStreamSessionLike | null {
  * Security & Isolation Invariants:
  * 1. ZERO Cross-Display Thumbnails: Metadata enumeration uses 0x0 thumbnail size.
  * 2. Strict Selected-Source Authorization: Only the verified target sourceId is granted in setDisplayMediaRequestHandler.
- * 3. Fail-Closed Access Control: Unauthorized frames, unexpected origins, or unselected sources receive callback({}).
- * 4. Hardware Teardown: On stop(), actual media stream tracks are stopped and the handler is unregistered.
+ * 3. Fail-Closed Access Control: Unauthorized frames, unexpected origins, or unselected sources receive callback(null).
+ * 4. Permanent Deny Gate: Stopped or idle session installs a permanent deny-by-default handler.
+ * 5. Hardware Teardown: On stop(), actual media stream tracks are stopped and handles released.
  */
 export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
   private activeTarget: CaptureTarget | null = null
-  private isRegistered = false
   private readonly session: MediaStreamSessionLike | null
+  private readonly authorizedOrigin?: string
   private readonly isAuthorizedFrame?: (frame: unknown, origin: string) => boolean
   private readonly frameExtractor?: FrameExtractor
+  private readonly client: DisplayMediaStreamClient
   private readonly trackStopCallbacks = new Set<() => void>()
 
+  private readonly denyHandler = (
+    _request: DisplayMediaRequest,
+    callback: (streams: DisplayStreams | null) => void
+  ): void => {
+    callback(null)
+  }
+
   constructor(options: MediaStreamBackendOptions = {}) {
-    this.session = options.session ?? resolveDefaultSession()
+    this.session = options.session ?? resolveCaptureSession()
+    this.authorizedOrigin = options.authorizedOrigin
     this.isAuthorizedFrame = options.isAuthorizedFrame
     this.frameExtractor = options.frameExtractor
+    this.client = options.client ?? new CaptureWindowClient({ session: this.session })
+
+    // Install permanent fail-closed deny handler by default
+    if (this.session) {
+      this.session.setDisplayMediaRequestHandler(this.denyHandler)
+    }
   }
 
   /**
    * Initializes the backend for an explicit verified capture target.
-   * Registers the display media request handler with session.
+   * Registers active authorization gate and starts the underlying stream.
    */
   public async start(target: CaptureTarget): Promise<void> {
     if (!target || !target.sourceId || !target.displayId) {
@@ -81,8 +104,10 @@ export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
 
     if (this.session) {
       this.session.setDisplayMediaRequestHandler(this.handleDisplayMediaRequest.bind(this))
-      this.isRegistered = true
     }
+
+    // Start stream via client
+    await this.client.startStream(this.activeTarget)
   }
 
   /**
@@ -91,25 +116,47 @@ export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
    */
   public handleDisplayMediaRequest(
     request: DisplayMediaRequest,
-    callback: (streams: DisplayStreams) => void
+    callback: (streams: DisplayStreams | null) => void
   ): void {
     // Invariant 1: Active target must exist
     if (!this.activeTarget || !this.activeTarget.sourceId) {
-      callback({})
+      callback(null)
       return
     }
 
-    // Invariant 2: Validate requesting frame authority if validator is configured
-    if (this.isAuthorizedFrame) {
-      const authorized = this.isAuthorizedFrame(request.frame, request.securityOrigin)
-      if (!authorized) {
-        callback({})
-        return
-      }
+    // Invariant 2: Requester frame must exist
+    if (!request.frame) {
+      callback(null)
+      return
     }
 
-    // Invariant 3: Only video from the explicitly selected source is granted.
-    // Audio is never granted through the display media channel (independent audio capture).
+    // Invariant 3: Validate authorized origin if configured
+    if (this.authorizedOrigin && request.securityOrigin !== this.authorizedOrigin) {
+      callback(null)
+      return
+    }
+
+    // Invariant 4: Mandatory frame authorization predicate
+    // If no validator is configured, fail closed by default (never allow-all)
+    if (!this.isAuthorizedFrame) {
+      callback(null)
+      return
+    }
+
+    const authorized = this.isAuthorizedFrame(request.frame, request.securityOrigin)
+    if (!authorized) {
+      callback(null)
+      return
+    }
+
+    // Invariant 5: Video must be requested
+    if (!request.videoRequested) {
+      callback(null)
+      return
+    }
+
+    // Invariant 6: Only video from the explicitly selected source is granted.
+    // Audio is strictly omitted (audio capture is managed independently).
     const grantedSourceId = this.activeTarget.sourceId
     const grantedSourceName =
       this.activeTarget.sourceName ?? `Display ${this.activeTarget.displayId}`
@@ -140,19 +187,19 @@ export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
       return this.frameExtractor(target)
     }
 
-    throw new Error(
-      `MediaStream frame extraction requires an active video track or frame extractor for target "${target.displayId}"`
-    )
+    return this.client.grabFrame(target)
   }
 
   /**
-   * Stops all active media tracks, unregisters the session handler, and flushes state.
+   * Stops all active media tracks, installs fail-closed deny-all handler, and flushes state.
    */
   public async stop(): Promise<void> {
-    if (this.session && this.isRegistered) {
-      this.session.setDisplayMediaRequestHandler(null)
-      this.isRegistered = false
+    // Install permanent fail-closed handler (never set to null, which restores default picker)
+    if (this.session) {
+      this.session.setDisplayMediaRequestHandler(this.denyHandler)
     }
+
+    await this.client.stopStream()
 
     for (const stopTrack of this.trackStopCallbacks) {
       try {
@@ -175,6 +222,6 @@ export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
   }
 
   public isHandlerRegistered(): boolean {
-    return this.isRegistered
+    return this.activeTarget !== null
   }
 }
