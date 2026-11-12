@@ -5,6 +5,7 @@ import {
   type DisplayMediaRequest,
   type DisplayStreams
 } from '../../src/main/capture/mediastream-backend'
+import { CaptureWindowClient } from '../../src/main/capture/capture-window-client'
 import type { CaptureTarget } from '../../src/shared/contracts/capture'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
@@ -195,5 +196,79 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
     expect(grantedStreams).not.toBeNull()
     // Audio must be strictly undefined/omitted
     expect(grantedStreams!.audio).toBeUndefined()
+  })
+
+  describe('CaptureWindowClient Lifecycle & Frame Extraction', () => {
+    it('executes stream acquisition and extracts frames via webExecutor', async () => {
+      const executedScripts: string[] = []
+      const fakePngBase64 = Buffer.from(
+        createValidCapturedFrame({ displayId: '101' }).data
+      ).toString('base64')
+
+      const client = new CaptureWindowClient({
+        webExecutor: async (script) => {
+          executedScripts.push(script)
+          if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
+            return { ready: true }
+          }
+          if (script.includes('imageCapture.grabFrame')) {
+            return fakePngBase64
+          }
+          return null
+        }
+      })
+
+      expect(client.isStreamActive()).toBe(false)
+      expect(client.getActiveTarget()).toBeNull()
+
+      await client.startStream(sampleTarget)
+      expect(client.isStreamActive()).toBe(true)
+      expect(client.getActiveTarget()?.displayId).toBe('101')
+      expect(
+        executedScripts.some((s) => s.includes('navigator.mediaDevices.getDisplayMedia'))
+      ).toBe(true)
+
+      const frame = await client.grabFrame(sampleTarget)
+      expect(frame.displayId).toBe('101')
+      expect(frame.format).toBe('png')
+      expect(frame.data.byteLength).toBeGreaterThan(0)
+      expect(frame.data[0]).toBe(0x89) // PNG signature
+      expect(
+        executedScripts.some((s) => s.includes('imageCapture.grabFrame'))
+      ).toBe(true)
+
+      await client.stopStream()
+      expect(client.isStreamActive()).toBe(false)
+      expect(client.getActiveTarget()).toBeNull()
+      expect(
+        executedScripts.some((s) => s.includes('window.__activeTrack.stop()'))
+      ).toBe(true)
+    })
+
+    it('rejects frame grab when stream is inactive', async () => {
+      const client = new CaptureWindowClient()
+      await expect(client.grabFrame(sampleTarget)).rejects.toThrow(
+        /Cannot grab frame: capture stream is not active/
+      )
+    })
+
+    it('rejects startStream when target is invalid', async () => {
+      const client = new CaptureWindowClient()
+      await expect(
+        client.startStream({ sourceId: '', displayId: '' })
+      ).rejects.toThrow(/invalid target/)
+    })
+
+    it('delegates to frameProvider when injected', async () => {
+      const expectedFrame = createValidCapturedFrame({ displayId: '101' })
+      const client = new CaptureWindowClient({
+        frameProvider: async () => expectedFrame
+      })
+
+      await client.startStream(sampleTarget)
+      const frame = await client.grabFrame(sampleTarget)
+      expect(frame).toBe(expectedFrame)
+      await client.stopStream()
+    })
   })
 })
