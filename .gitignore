@@ -36,6 +36,7 @@ runtime-data/
 captures/
 recordings/
 local-models/
+artifacts/
 
 # Python cache for optional validation helper only
 __pycache__/
