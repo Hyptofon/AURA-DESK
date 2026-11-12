@@ -56,6 +56,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
   private unsubscribeDisplayManager: (() => void) | null = null
   private lastError: string | null = null
   private isCapturing = false
+  private pendingBackendStop: Promise<void> | null = null
   private readonly statusListeners = new Set<(status: SessionStatus, error?: string) => void>()
 
   private readonly buffer: FrameRingBuffer
@@ -104,6 +105,15 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     // If active on a different display, stop previous session first
     if (this.status === 'active') {
       await this.stop()
+    }
+
+    // Await any pending background stop from a previous abrupt termination
+    if (this.pendingBackendStop) {
+      try {
+        await this.pendingBackendStop
+      } catch {
+        // Logged and handled in pendingBackendStop handler
+      }
     }
 
     const currentGen = ++this.sessionGeneration
@@ -349,9 +359,16 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
 
     if (this.backend.stop) {
       try {
-        Promise.resolve(this.backend.stop()).catch((err) => {
-          console.error('Asynchronous error during abrupt capture backend stop:', err)
-        })
+        const stopPromise = Promise.resolve(this.backend.stop())
+          .catch((err) => {
+            console.error('Asynchronous error during abrupt capture backend stop:', err)
+          })
+          .finally(() => {
+            if (this.pendingBackendStop === stopPromise) {
+              this.pendingBackendStop = null
+            }
+          })
+        this.pendingBackendStop = stopPromise
       } catch (err) {
         console.error('Synchronous error invoking capture backend stop:', err)
       }
@@ -370,6 +387,15 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     if (this.unsubscribeDisplayManager) {
       this.unsubscribeDisplayManager()
       this.unsubscribeDisplayManager = null
+    }
+
+    // Await any pending background stop from a previous abrupt termination first
+    if (this.pendingBackendStop) {
+      try {
+        await this.pendingBackendStop
+      } catch {
+        // Logged and handled in pendingBackendStop handler
+      }
     }
 
     // Idempotent check: if already idle and finalStatus is idle, return
