@@ -135,7 +135,7 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
         sourceName: 'Screen 1'
       })
 
-      expect(mockSession.setDisplayMediaRequestHandler).toHaveBeenCalledTimes(1)
+      expect(mockSession.setDisplayMediaRequestHandler).toHaveBeenCalledTimes(2) // 1 in constructor (deny-all), 1 in start (active target)
       expect(registeredHandler).not.toBeNull()
 
       // 1. Authorized frame requesting display media
@@ -159,8 +159,8 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
       expect(grantedStreams!.video?.name).toBe('Screen 1')
       expect(grantedStreams!.audio).toBeUndefined()
 
-      // 2. Unauthorized frame requesting media -> must fail closed (callback({}))
-      let deniedStreams: DisplayStreams | null = null
+      // 2. Unauthorized frame requesting media -> must fail closed (callback(null))
+      let deniedStreams: DisplayStreams | null = 'sentinel' as unknown as DisplayStreams
       registeredHandler!(
         {
           frame: 'unauthorized-attacker-frame',
@@ -174,8 +174,7 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
         }
       )
 
-      expect(deniedStreams).not.toBeNull()
-      expect(deniedStreams!.video).toBeUndefined()
+      expect(deniedStreams).toBeNull()
 
       await backend.stop()
     })
@@ -308,9 +307,24 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
 
       await backend.stop()
 
-      // Track stopped, handler unregistered, target cleared
+      // Track stopped, permanent fail-closed deny-by-default installed, target cleared
       expect(trackStopped).toBe(true)
-      expect(mockSession.setDisplayMediaRequestHandler).toHaveBeenLastCalledWith(null)
+      expect(mockSession.setDisplayMediaRequestHandler).toHaveBeenLastCalledWith(expect.any(Function))
+      const lastHandler = vi.mocked(mockSession.setDisplayMediaRequestHandler).mock.calls.slice(-1)[0][0]
+      let postStopResult: DisplayStreams | null = 'sentinel' as unknown as DisplayStreams
+      lastHandler!(
+        {
+          frame: 'any',
+          securityOrigin: 'http://localhost:5173',
+          videoRequested: true,
+          audioRequested: false,
+          userGesture: false
+        },
+        (res) => {
+          postStopResult = res
+        }
+      )
+      expect(postStopResult).toBeNull()
       expect(backend.isHandlerRegistered()).toBe(false)
       expect(backend.getActiveTarget()).toBeNull()
     })
