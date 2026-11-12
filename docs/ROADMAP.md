@@ -12,7 +12,7 @@
 ## Milestone M1 — Real Windows capture spike (critical)
 
 - [x] **P1.1** Enumerate two monitors, stable IDs, resolutions and hotplug notification.
-- [ ] **P1.2** Capture Single display only; validate no leakage from other physical display (IN REVIEW: PR #4 completed production capture window wiring; 190 tests pass across 11 suites, isolated partition in-memory:aura-capture, CaptureWindowClient window lifecycle, exact frame identity matching, secure capture.html document, permanent deny-by-default gate, behavioral security gate verified, metadata 0x0 enumeration, strict display_id mapping, race cancellation tokens, status synchronization, hard memory limits; physical Windows capture: NEEDS MANUAL TEST).
+- [ ] **P1.2** Capture Single display only; validate no leakage from other physical display (IN REVIEW: PR #4 completed production capture window wiring, user gesture activation, asset bundling, and failed startup cleanup; 199 tests pass across 11 suites, isolated partition in-memory:aura-capture, CaptureWindowClient window lifecycle, exact frame identity matching, secure capture.html document bundled via ?asset in out/main/chunks/, permanent deny-by-default gate, behavioral security gate verified, metadata 0x0 enumeration, strict display_id mapping, race cancellation tokens, status synchronization, hard memory limits; physical Windows capture: NEEDS MANUAL TEST).
 - [ ] **P1.3** Capture two displays simultaneously; timestamps, bounded memory and stop tracks.
 - [ ] **P1.4** Verify overlay exclusion / screen recursion, Windows DPI scaling.
 - [ ] **GATE-1** Demonstrate real Windows 2-monitor capture. If fail, revise architecture ADR and Stop; do not proceed as if functional.
