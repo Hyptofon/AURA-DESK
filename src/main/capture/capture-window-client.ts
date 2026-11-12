@@ -106,8 +106,15 @@ export function resolveCaptureHtmlPath(assetPathOverride?: string): string {
   )
 }
 
-function defaultCaptureWindowFactory(session: unknown): BrowserWindowLike {
+export function defaultCaptureWindowFactory(
+  optionsOrSession?: { session?: unknown } | unknown
+): BrowserWindowLike {
   try {
+    const session =
+      optionsOrSession && typeof optionsOrSession === 'object' && 'session' in optionsOrSession
+        ? (optionsOrSession as { session: unknown }).session
+        : optionsOrSession
+
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const electron = require('electron')
     const BrowserWindow = electron?.BrowserWindow
@@ -254,7 +261,23 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
             return { ok: false, error: 'Capture track is not live' };
           }
           const ic = new ImageCapture(window.__activeTrack);
-          const bitmap = await ic.grabFrame();
+          let bitmap = null;
+          let lastErr = null;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              bitmap = await ic.grabFrame();
+              if (bitmap) break;
+            } catch (e) {
+              lastErr = e;
+              await new Promise((r) => setTimeout(r, 60));
+            }
+          }
+          if (!bitmap) {
+            return {
+              ok: false,
+              error: 'ImageCapture.grabFrame failed: ' + (lastErr ? String(lastErr.message || lastErr) : 'no bitmap produced')
+            };
+          }
           const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
           const ctx = canvas.getContext('2d');
           ctx.drawImage(bitmap, 0, 0);
