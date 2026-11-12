@@ -5,7 +5,7 @@ import {
   SingleDisplayCapturer,
   type DesktopCapturerLike
 } from '../../src/main/capture/single-display-capturer'
-import { CaptureWindowClient } from '../../src/main/capture/capture-window-client'
+import { CaptureWindowClient, resolveCaptureHtmlPath } from '../../src/main/capture/capture-window-client'
 import {
   MediaStreamDisplayCaptureBackend,
   type MediaStreamSessionLike,
@@ -480,6 +480,35 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
 
       // will-navigate must guard navigation with isAllowedNavigation
       expect(mainIndexCode).toMatch(/will-navigate[\s\S]*?isAllowedNavigation/)
+    })
+  })
+
+  describe('Capture Document & Build Artifact Availability Invariants', () => {
+    it('ensures capture.html exists with strict CSP and is imported as a built asset', () => {
+      const clientCode = readSrc('src/main/capture/capture-window-client.ts')
+      // Must import capture.html with ?asset query for electron-vite bundling
+      expect(clientCode).toMatch(/import\s+\w+\s+from\s+['"]\.\/capture\.html\?asset['"]/)
+
+      // Verify the resolved capture.html exists and has strict CSP
+      const captureHtmlPath = resolveCaptureHtmlPath()
+      expect(fs.existsSync(captureHtmlPath)).toBe(true)
+      const content = fs.readFileSync(captureHtmlPath, 'utf-8')
+      expect(content).toContain("default-src 'none'")
+      expect(content).toContain("connect-src 'none'")
+      expect(content).toContain('aura-capture-canvas')
+    })
+
+    it('verifies built capture.html asset exists in out/main/chunks when build output is present', () => {
+      const chunksDir = path.join(process.cwd(), 'out/main/chunks')
+      if (fs.existsSync(chunksDir)) {
+        const files = fs.readdirSync(chunksDir)
+        const htmlAssets = files.filter((f) => f.startsWith('capture-') && f.endsWith('.html'))
+        expect(htmlAssets.length).toBeGreaterThanOrEqual(1)
+        const assetPath = path.join(chunksDir, htmlAssets[0])
+        const assetContent = fs.readFileSync(assetPath, 'utf-8')
+        expect(assetContent).toContain('aura-capture-canvas')
+        expect(assetContent).toContain("default-src 'none'")
+      }
     })
   })
 })
