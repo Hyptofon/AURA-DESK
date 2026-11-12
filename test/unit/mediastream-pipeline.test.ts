@@ -7,6 +7,7 @@ import {
 } from '../../src/main/capture/mediastream-backend'
 import {
   CaptureWindowClient,
+  resolveCaptureHtmlPath,
   type BrowserWindowLike,
   type WebContentsLike
 } from '../../src/main/capture/capture-window-client'
@@ -19,8 +20,13 @@ class MockCaptureWindow implements BrowserWindowLike {
   public destroyed = false
   public listeners: Record<string, ((...args: unknown[]) => void)[]> = {}
   public windowOpenHandler?: (details: { url: string }) => { action: 'deny' }
+  public loadFileError: Error | null = null
+  public destroyOnLoadFile = false
 
-  constructor(mainFrame: unknown, executor: (script: string) => Promise<unknown>) {
+  constructor(
+    mainFrame: unknown,
+    executor: (script: string, userGesture?: boolean) => Promise<unknown>
+  ) {
     this.webContents = {
       mainFrame,
       executeJavaScript: vi.fn().mockImplementation(executor),
@@ -40,6 +46,13 @@ class MockCaptureWindow implements BrowserWindowLike {
   }
 
   async loadFile(filePath: string): Promise<void> {
+    if (this.destroyOnLoadFile) {
+      this.destroy()
+      throw new Error('Window was destroyed during loadFile')
+    }
+    if (this.loadFileError) {
+      throw this.loadFileError
+    }
     this.loadedFiles.push(filePath)
   }
 
@@ -47,6 +60,12 @@ class MockCaptureWindow implements BrowserWindowLike {
 
   destroy(): void {
     this.destroyed = true
+    const closedListeners = this.listeners['closed']
+    if (closedListeners) {
+      for (const listener of closedListeners) {
+        listener()
+      }
+    }
   }
 
   isDestroyed(): boolean {
@@ -444,6 +463,189 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
       await expect(
         client.startStream({ sourceId: '', displayId: '' })
       ).rejects.toThrow(/invalid target/)
+    })
+
+    it('invokes stream startup script with userGesture set to true (P1 user activation invariant)', async () => {
+      let createdWindow: MockCaptureWindow | null = null
+      let passedUserGesture: boolean | undefined
+
+      const client = new CaptureWindowClient({
+        windowFactory: () => {
+          createdWindow = new MockCaptureWindow(
+            { processId: 1, routingId: 1 },
+            async (script, userGesture) => {
+              if (script.includes('getDisplayMedia')) {
+                passedUserGesture = userGesture
+                return { ok: true, trackId: 'track-activation-1' }
+              }
+              return null
+            }
+          )
+          return createdWindow
+        }
+      })
+
+      await client.startStream(sampleTarget)
+      expect(client.isStreamActive()).toBe(true)
+      expect(passedUserGesture).toBe(true)
+      expect(createdWindow!.webContents.executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining('getDisplayMedia'),
+        true
+      )
+      await client.stopStream()
+    })
+
+    it('cleans up capture window and resets state if loadFile fails (P2 failed startup cleanup)', async () => {
+      let createdWindow: MockCaptureWindow | null = null
+
+      const client = new CaptureWindowClient({
+        windowFactory: () => {
+          createdWindow = new MockCaptureWindow({ processId: 1, routingId: 1 }, async () => ({ ok: true }))
+          createdWindow.loadFileError = new Error('ERR_FILE_NOT_FOUND: capture.html is missing')
+          return createdWindow
+        }
+      })
+
+      await expect(client.startStream(sampleTarget)).rejects.toThrow(
+        /CaptureWindowClient failed to initialize capture window: ERR_FILE_NOT_FOUND/
+      )
+
+      expect(client.isStreamActive()).toBe(false)
+      expect(client.getActiveTarget()).toBeNull()
+      expect(client.getCaptureWindow()).toBeNull()
+      expect(createdWindow).not.toBeNull()
+      expect(createdWindow!.destroyed).toBe(true)
+    })
+
+    it('handles unexpected window destruction while startup is pending and cleans up', async () => {
+      let createdWindow: MockCaptureWindow | null = null
+
+      const client = new CaptureWindowClient({
+        windowFactory: () => {
+          createdWindow = new MockCaptureWindow({ processId: 1, routingId: 1 }, async () => ({ ok: true }))
+          createdWindow.destroyOnLoadFile = true
+          return createdWindow
+        }
+      })
+
+      await expect(client.startStream(sampleTarget)).rejects.toThrow(
+        /CaptureWindowClient failed to initialize capture window/
+      )
+
+      expect(client.isStreamActive()).toBe(false)
+      expect(client.getCaptureWindow()).toBeNull()
+      expect(createdWindow!.destroyed).toBe(true)
+    })
+
+    it('allows clean retry after a failed startup attempt', async () => {
+      let attempt = 0
+      const windows: MockCaptureWindow[] = []
+
+      const client = new CaptureWindowClient({
+        windowFactory: () => {
+          attempt++
+          const win = new MockCaptureWindow(
+            { processId: attempt, routingId: 1 },
+            async (script) => {
+              if (script.includes('getDisplayMedia')) {
+                return { ok: true, trackId: `track-${attempt}` }
+              }
+              return null
+            }
+          )
+          if (attempt === 1) {
+            win.loadFileError = new Error('Simulated transient startup failure')
+          }
+          windows.push(win)
+          return win
+        }
+      })
+
+      // Attempt 1 fails
+      await expect(client.startStream(sampleTarget)).rejects.toThrow(
+        /Simulated transient startup failure/
+      )
+      expect(client.isStreamActive()).toBe(false)
+      expect(windows[0].destroyed).toBe(true)
+
+      // Attempt 2 succeeds cleanly from fresh state
+      await client.startStream(sampleTarget)
+      expect(client.isStreamActive()).toBe(true)
+      expect(client.getCaptureWindow()).toBe(windows[1])
+      expect(windows[1].destroyed).toBe(false)
+
+      await client.stopStream()
+      expect(client.isStreamActive()).toBe(false)
+      expect(windows[1].destroyed).toBe(true)
+    })
+
+    it('handles NotAllowedError and leaves capture window cleanly destroyed', async () => {
+      let createdWindow: MockCaptureWindow | null = null
+
+      const client = new CaptureWindowClient({
+        windowFactory: () => {
+          createdWindow = new MockCaptureWindow({ processId: 1, routingId: 1 }, async () => {
+            return {
+              ok: false,
+              error: 'NotAllowedError: Permission denied by user or policy',
+              errorName: 'NotAllowedError'
+            }
+          })
+          return createdWindow
+        }
+      })
+
+      await expect(client.startStream(sampleTarget)).rejects.toThrow(
+        /Stream acquisition failed \[NotAllowedError\]: NotAllowedError: Permission denied by user or policy/
+      )
+
+      expect(client.isStreamActive()).toBe(false)
+      expect(createdWindow!.destroyed).toBe(true)
+      expect(client.getCaptureWindow()).toBeNull()
+    })
+
+    it('handles InvalidStateError and NotSupportedError fail closed', async () => {
+      const clientInvalidState = new CaptureWindowClient({
+        windowFactory: () =>
+          new MockCaptureWindow({ processId: 1, routingId: 1 }, async () => ({
+            ok: false,
+            error: 'InvalidStateError: Acquired video track is not live',
+            errorName: 'InvalidStateError'
+          }))
+      })
+
+      await expect(clientInvalidState.startStream(sampleTarget)).rejects.toThrow(
+        /Stream acquisition failed \[InvalidStateError\]/
+      )
+      expect(clientInvalidState.isStreamActive()).toBe(false)
+
+      const clientNotSupported = new CaptureWindowClient({
+        windowFactory: () =>
+          new MockCaptureWindow({ processId: 1, routingId: 1 }, async () => ({
+            ok: false,
+            error: 'NotSupportedError: navigator.mediaDevices.getDisplayMedia is not available',
+            errorName: 'NotSupportedError'
+          }))
+      })
+
+      await expect(clientNotSupported.startStream(sampleTarget)).rejects.toThrow(
+        /Stream acquisition failed \[NotSupportedError\]/
+      )
+      expect(clientNotSupported.isStreamActive()).toBe(false)
+    })
+
+    it('resolves capture.html path in development/build and fails closed if document is missing', () => {
+      // 1. Production / dev resolution finds existing capture surface document
+      const resolved = resolveCaptureHtmlPath()
+      expect(resolved).toBeTruthy()
+      expect(resolved).toContain('capture.html')
+
+      // 2. Fails closed with descriptive error if explicitly missing or non-existent path
+      expect(() =>
+        resolveCaptureHtmlPath('/nonexistent/path/completely_missing_capture.html')
+      ).toThrow(
+        /Capture surface document \(capture\.html\) could not be resolved at specified path/
+      )
     })
   })
 
