@@ -1,6 +1,6 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-12. **Current status:** `M0 COMPLETED, M1 IN PROGRESS (P1.1 COMPLETED, P1.2 IN REVIEW)`.
+**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 IN PROGRESS (P1.1 COMPLETED, P1.2 IN REVIEW)`.
 
 ## Summary
 
@@ -87,21 +87,33 @@
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (233 tests total across 13 suites: frame-buffer [12], source-resolver [18], single-display-capturer [17], windows-display-query [6], frame-pixel-sampler [9], display-manager [20], navigation-guard [17], preload-api [15], ipc-contracts [35], ipc-handlers [39], production-invariants [16], mediastream-pipeline [25], App.test.tsx [4]).
+- `npm run test`: PASS (265 tests total across 14 suites: physical-harness-modes [32], frame-buffer [12], source-resolver [18], single-display-capturer [17], windows-display-query [6], frame-pixel-sampler [9], display-manager [20], navigation-guard [17], preload-api [15], ipc-contracts [35], ipc-handlers [39], production-invariants [16], mediastream-pipeline [25], App.test.tsx [4]).
+- `Dual-Monitor Physical Source Isolation`: PASS (user-observed and verified with 9/9 checks PASS on 2 physical monitors: Display 1 `1238924755` Cobalt Blue ratio 1.0, mean `{r:0,g:87,b:182}`, 53003 bytes; Display 2 `368940417` Crimson Red ratio 1.0, mean `{r:217,g:44,b:43}`, 54131 bytes; both windows positioned on `screen-saver` topmost band; resource teardown clean; nonexistent display fails closed without fallback; historical evidence preserved in `artifacts/local-validation/historical/user-observed-dual-monitor-pass-2026-11-12.json`).
+- `Multi-Mode Physical Harness & Collision-Resistant Evidence Storage`: PASS (`scripts/verify-physical-isolation.cjs` supports `--mode <auto|single|dual>`, `--list-displays`, `--check-harness`, and `--help`. Dynamic display count resolution distinguishes environmental precondition skips `SKIPPED_INSUFFICIENT_DISPLAYS` from functional capture failures. Implemented collision-resistant immutable multi-run report preservation under `artifacts/local-validation/physical-isolation/<single|dual|skipped>/<runId>.json` so subsequent runs or skips never overwrite historical evidence. 32 unit tests in `test/unit/physical-harness-modes.test.ts` passing green).
 - `MediaStream NotSupportedError Investigation & Repair`: PASS (diagnosed real runtime failure where `defaultCaptureWindowFactory` received options object `{ session: this.session }` but passed it as `webPreferences: { session }`, causing Electron to discard invalid session and fall back to `session.defaultSession` which lacked `setDisplayMediaRequestHandler`; fixed factory parameter unwrapping to properly bind `in-memory:aura-capture`; added bounded 5-attempt retry loop to `ic.grabFrame()` to absorb compositor latency; verified with 5 new unit tests in `mediastream-pipeline.test.ts`).
 - `Physical Isolation Test Secondary Window Occlusion Diagnosis & Harness Hardening`: PASS (diagnosed authorized physical run where Display 1 passed Cobalt Blue with ratio 1.0, while Display 2 captured dark application windows occluding the red test pattern due to default `floating` topmost band on non-focused window; hardened `scripts/verify-physical-isolation.cjs` with `screen-saver` topmost band, `showInactive()`, `moveTop()`, pre-capture `getWindowDiagnostics` assertions, bounded 5-attempt diagnostic sampling to distinguish dark/settling frames from persistent occlusion or wrong sources, and cleanly decoupled `processLifecycle` reporting from resource teardown and functional pattern isolation).
 - `npm run build`: PASS (electron-vite built main with out/main/chunks/capture-B5idrik2.html [0.35 kB], preload out/preload/index.cjs 2.34 kB CommonJS with 0 zod dependencies, and renderer).
-- `npm run test:electron-smoke`: PASS (`smokeScope: metadata-ipc-preload-only`; dynamically validates 11 mandatory applicable checks [bridgeExposure, ipcBaseline, screenEnumeration, desktopCapturerEnumeration with measured 0x0 thumbnails, primaryMapping, secondaryMapping, missingMapping, duplicateMapping, unsafeFallback, pixelCaptureZeroed, parent-verified testProcessCleanup] with zero hardcoded statuses; explicitly marks `physicalPixelIsolation: NOT_RUN` and `physicalSourceIsolationStatus: NOT_VERIFIED`).
+- `npm run test:electron-smoke`: PASS (`smokeScope: metadata-ipc-preload-only`; supports both single and dual display hardware topologies; dynamically validates mandatory applicable checks [bridgeExposure, ipcBaseline, screenEnumeration, desktopCapturerEnumeration with measured 0x0 thumbnails, primaryMapping, missingMapping, unsafeFallback, pixelCaptureZeroed, parent-verified testProcessCleanup] with zero hardcoded statuses; secondaryMapping and duplicateMapping automatically evaluated or marked NOT_APPLICABLE based on connected display count; explicitly marks `physicalPixelIsolation: NOT_RUN` and `physicalSourceIsolationStatus: NOT_VERIFIED`).
 - `node scripts/verify-physical-isolation.cjs --check-harness`: PASS (compiles ephemeral CJS bundle via async `esbuild.build()` with `capture.html?asset` plugin, verifies 810,036-byte bundle syntax & CJS exports `[DisplayManager, SingleDisplayCapturer, MediaStreamDisplayCaptureBackend, samplePngPixels]`, deletes `.physical-harness.cjs`, zero physical capture or MediaStream request).
+- `node scripts/verify-physical-isolation.cjs --list-displays`: PASS (enumerates connected physical monitors via Electron Screen API without window creation or capture).
 - `node scripts/verify-physical-isolation.cjs`: authorization refusal gate verified (`exit 2` without `--authorize-physical-capture`; live run AWAITING EXPLICIT USER AUTHORIZATION).
-- Physical dual-monitor configuration: PASS (host verified with two physical 1080p monitors via .NET enumeration).
+- Physical dual-monitor configuration: PASS (host verified with two physical 1080p monitors via .NET enumeration; dual-monitor physical isolation PASS).
 - Real Electron physical cable disconnect/reconnect hotplug: NEEDS MANUAL TEST (mock tests verify protocol correctness; manual Windows test procedure documented below).
-- Real physical display frame capture isolation: NOT VERIFIED until supervised hardware pattern verification is explicitly authorized and passes.
+- Real single-monitor physical display frame capture isolation: IMPLEMENTED & AWAITING USER AUTHORIZATION (single-monitor verification Scenario A implemented for primary laptop display).
 
 ### Reproducible Supervised Physical Verification & Manual Windows Test Instructions:
 1. **Supervised Physical Source Isolation Gate (Run ONLY after explicit user authorization):**
-   - Command: `node scripts/verify-physical-isolation.cjs --authorize-physical-capture`
-   - Action: Displays temporary non-sensitive Cobalt Blue (`#0057B8`) pattern on Display 1 and Crimson Red (`#D92B2B`) pattern on Display 2; runs production `SingleDisplayCapturer` sequentially on each monitor; samples decoded PNG pixels in-memory via `samplePngPixels` confirming Display 1 contains only Cobalt Blue and Display 2 contains only Crimson Red; verifies `stop()` buffer cleanup (`frameCount=0`, `totalBytes=0`, `idle`, deny handler restored) and nonexistent-display no-fallback rejection; writes ONLY safe aggregate RGB ratios & PASS/FAIL JSON to `artifacts/local-validation/physical-isolation-results.json` without saving or uploading raw frames.
+   - Single-monitor test (laptop display only):
+     `node scripts/verify-physical-isolation.cjs --mode single --authorize-physical-capture`
+     *Action*: Displays Cobalt Blue (`#0057B8`) pattern on laptop screen; runs production `SingleDisplayCapturer`; samples decoded PNG pixels in-memory via `samplePngPixels` confirming Cobalt Blue ratio >= 0.95 and RGB within tolerance; verifies `stop()` buffer cleanup (`frameCount=0`, `totalBytes=0`, `idle`, deny handler restored) and nonexistent-display no-fallback rejection; writes safe aggregate RGB ratios & PASS/FAIL JSON to `artifacts/local-validation/physical-isolation/single/<timestamp>-<hash>.json` and updates `physical-isolation-results.json` pointer without saving raw frames.
+   - Dual-monitor test (2 physical monitors connected):
+     `node scripts/verify-physical-isolation.cjs --mode dual --authorize-physical-capture`
+     *Action*: Requires 2 monitors; if <2 detected, reports `SKIPPED_INSUFFICIENT_DISPLAYS` to `artifacts/local-validation/physical-isolation/skipped/` without failing or overwriting previous PASS.
+   - Auto mode (detects monitor count automatically):
+     `node scripts/verify-physical-isolation.cjs --authorize-physical-capture`
+   - Safe metadata utilities (no capture):
+     `node scripts/verify-physical-isolation.cjs --list-displays`
+     `node scripts/verify-physical-isolation.cjs --check-harness`
 2. **Interactive DevTools / Hotplug Test:**
    - Run `npm run dev` in PowerShell to launch the desktop application and open DevTools (`Ctrl+Shift+I`).
    - Execute: `const config = await window.api.getDisplays()` -> `await window.api.startSession({ mode: 'single', displayId: config.displays[0].id })` -> `await window.api.stopSession()`.
