@@ -80,10 +80,18 @@ export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
 
   constructor(options: MediaStreamBackendOptions = {}) {
     this.session = options.session ?? resolveCaptureSession()
-    this.authorizedOrigin = options.authorizedOrigin
-    this.isAuthorizedFrame = options.isAuthorizedFrame
-    this.frameExtractor = options.frameExtractor
     this.client = options.client ?? new CaptureWindowClient({ session: this.session })
+    this.authorizedOrigin =
+      options.authorizedOrigin ?? (options.isAuthorizedFrame ? undefined : 'file:///')
+    this.isAuthorizedFrame =
+      options.isAuthorizedFrame ??
+      ((frame: unknown, origin: string) => {
+        if (this.client instanceof CaptureWindowClient) {
+          return this.client.isAuthorizedFrame(frame, origin)
+        }
+        return false
+      })
+    this.frameExtractor = options.frameExtractor
 
     // Install permanent fail-closed deny handler by default
     if (this.session) {
@@ -131,9 +139,15 @@ export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
     }
 
     // Invariant 3: Validate authorized origin if configured
-    if (this.authorizedOrigin && request.securityOrigin !== this.authorizedOrigin) {
-      callback(null)
-      return
+    if (this.authorizedOrigin) {
+      const match =
+        request.securityOrigin === this.authorizedOrigin ||
+        (this.authorizedOrigin === 'file:///' && request.securityOrigin === 'file://') ||
+        (this.authorizedOrigin === 'file://' && request.securityOrigin === 'file:///')
+      if (!match) {
+        callback(null)
+        return
+      }
     }
 
     // Invariant 4: Mandatory frame authorization predicate
@@ -223,5 +237,9 @@ export class MediaStreamDisplayCaptureBackend implements FrameCaptureBackend {
 
   public isHandlerRegistered(): boolean {
     return this.activeTarget !== null
+  }
+
+  public getClient(): DisplayMediaStreamClient {
+    return this.client
   }
 }
