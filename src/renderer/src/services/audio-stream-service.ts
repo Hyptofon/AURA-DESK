@@ -9,6 +9,7 @@ export interface AudioStreamClient {
   stopMicrophone(): Promise<void>
   startSystemLoopback(): Promise<void>
   stopSystemLoopback(): Promise<void>
+  pauseAll(): Promise<void>
   stopAll(): Promise<void>
   isMicrophoneStreaming(): boolean
   isSystemLoopbackStreaming(): boolean
@@ -24,6 +25,8 @@ export function float32ToInt16Pcm(input: Float32Array): Int16Array {
 }
 
 export class AudioStreamService implements AudioStreamClient {
+  private generation = 0
+
   private micStream: MediaStream | null = null
   private micAudioContext: AudioContext | null = null
   private micProcessor: ScriptProcessorNode | null = null
@@ -39,12 +42,22 @@ export class AudioStreamService implements AudioStreamClient {
       throw new Error('navigator.mediaDevices.getUserMedia is not supported')
     }
 
+    const currentGen = ++this.generation
     const constraints: MediaStreamConstraints = {
       audio: deviceId ? { deviceId: { exact: deviceId } } : true,
       video: false
     }
 
     const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+    // Abort and stop tracks if teardown/pause was triggered while acquisition was in-flight
+    if (this.generation !== currentGen) {
+      for (const track of stream.getTracks()) {
+        track.stop()
+      }
+      throw new Error('Microphone acquisition was cancelled')
+    }
+
     this.micStream = stream
 
     const AudioContextClass =
@@ -86,6 +99,8 @@ export class AudioStreamService implements AudioStreamClient {
   }
 
   async stopMicrophone(): Promise<void> {
+    ++this.generation
+
     if (this.micProcessor) {
       this.micProcessor.onaudioprocess = null
       this.micProcessor.disconnect()
@@ -114,11 +129,38 @@ export class AudioStreamService implements AudioStreamClient {
       throw new Error('navigator.mediaDevices.getDisplayMedia is not supported')
     }
 
-    // In Electron with loopback enabled, getDisplayMedia with audio: true captures default playback
+    const currentGen = ++this.generation
+
+    // Chromium/Electron getDisplayMedia requires video: true even for audio loopback.
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      audio: true,
-      video: false
+      video: true,
+      audio: true
     })
+
+    // Abort and stop all tracks if teardown/pause was triggered while acquisition was in-flight
+    if (this.generation !== currentGen) {
+      for (const track of stream.getTracks()) {
+        track.stop()
+      }
+      throw new Error('System loopback acquisition was cancelled')
+    }
+
+    // Verify a live audio track is present
+    const audioTracks = stream.getAudioTracks()
+    const audioTrack = audioTracks[0]
+    if (!audioTrack || audioTrack.readyState !== 'live') {
+      for (const track of stream.getTracks()) {
+        track.stop()
+      }
+      throw new Error('No live audio track received for system loopback')
+    }
+
+    // Immediately stop and discard any temporary video tracks required by getDisplayMedia
+    for (const videoTrack of stream.getVideoTracks()) {
+      videoTrack.stop()
+      stream.removeTrack(videoTrack)
+    }
+
     this.systemStream = stream
 
     const AudioContextClass =
@@ -170,6 +212,8 @@ export class AudioStreamService implements AudioStreamClient {
   }
 
   async stopSystemLoopback(): Promise<void> {
+    ++this.generation
+
     if (this.systemProcessor) {
       this.systemProcessor.onaudioprocess = null
       this.systemProcessor.disconnect()
@@ -191,8 +235,22 @@ export class AudioStreamService implements AudioStreamClient {
     }
   }
 
+  async pauseAll(): Promise<void> {
+    ++this.generation
+    const results = await Promise.allSettled([this.stopMicrophone(), this.stopSystemLoopback()])
+    const failure = results.find((r) => r.status === 'rejected')
+    if (failure && failure.status === 'rejected') {
+      throw failure.reason
+    }
+  }
+
   async stopAll(): Promise<void> {
-    await Promise.allSettled([this.stopMicrophone(), this.stopSystemLoopback()])
+    ++this.generation
+    const results = await Promise.allSettled([this.stopMicrophone(), this.stopSystemLoopback()])
+    const failure = results.find((r) => r.status === 'rejected')
+    if (failure && failure.status === 'rejected') {
+      throw failure.reason
+    }
   }
 
   isMicrophoneStreaming(): boolean {
