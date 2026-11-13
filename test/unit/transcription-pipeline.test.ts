@@ -299,4 +299,114 @@ describe('TranscriptionPipeline', () => {
     pipeline.dispose()
     expect(pipeline.getState().segmentCount).toBe(0)
   })
+
+  it('processes overlapping speech window via bounded queue once active inference completes', async () => {
+    let callCount = 0
+    let resolveFirstInference!: () => void
+    const queuedProvider = {
+      id: 'queued-stt',
+      name: 'Queued STT Provider',
+      transcribe: vi.fn().mockImplementation(() => {
+        callCount++
+        if (callCount === 1) {
+          return new Promise((resolve) => {
+            resolveFirstInference = () =>
+              resolve({
+                text: 'First question?',
+                language: 'en',
+                confidence: 0.9,
+                durationMs: 1000
+              })
+          })
+        }
+        return Promise.resolve({
+          text: 'Second question?',
+          language: 'en',
+          confidence: 0.9,
+          durationMs: 1000
+        })
+      })
+    }
+
+    const pipeline = new TranscriptionPipeline({
+      provider: queuedProvider,
+      windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+      controlsOptions: { debounceMs: 0 }
+    })
+
+    // Ingest first window -> triggers first inference (now in-flight)
+    const ingest1 = (async () => {
+      await pipeline.ingestChunk(makeChunk('mic', 1000, 100, true))
+      await pipeline.ingestChunk(makeChunk('mic', 1100, 50, false))
+    })()
+
+    await new Promise((r) => setTimeout(r, 20))
+    expect(pipeline.getState().isTranscribing).toBe(true)
+
+    // Ingest second window while first is still in-flight
+    await pipeline.ingestChunk(makeChunk('mic', 2000, 100, true))
+    await pipeline.ingestChunk(makeChunk('mic', 2100, 50, false))
+
+    // Second window must not be dropped; it should be queued in pendingAudioWindow
+    expect(queuedProvider.transcribe).toHaveBeenCalledTimes(1)
+
+    // Resolve first inference
+    resolveFirstInference()
+    await ingest1
+
+    // Allow queued window to be picked up in finally
+    await new Promise((r) => setTimeout(r, 30))
+
+    expect(queuedProvider.transcribe).toHaveBeenCalledTimes(2)
+    expect(pipeline.getState().segmentCount).toBe(2)
+    expect(pipeline.getState().latestSegment?.text).toBe('Second question?')
+  })
+
+  it('discards queued pending audio window on stop()', async () => {
+    let resolveFirstInference!: () => void
+    const queuedProvider = {
+      id: 'queued-stt',
+      name: 'Queued STT Provider',
+      transcribe: vi.fn().mockImplementation(() => {
+        return new Promise((resolve) => {
+          resolveFirstInference = () =>
+            resolve({
+              text: 'First question?',
+              language: 'en',
+              confidence: 0.9,
+              durationMs: 1000
+            })
+        })
+      })
+    }
+
+    const pipeline = new TranscriptionPipeline({
+      provider: queuedProvider,
+      windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+      controlsOptions: { debounceMs: 0 }
+    })
+
+    const ingest1 = (async () => {
+      await pipeline.ingestChunk(makeChunk('mic', 1000, 100, true))
+      await pipeline.ingestChunk(makeChunk('mic', 1100, 50, false))
+    })()
+
+    await new Promise((r) => setTimeout(r, 20))
+    expect(pipeline.getState().isTranscribing).toBe(true)
+
+    // Ingest second window while first is in-flight
+    await pipeline.ingestChunk(makeChunk('mic', 2000, 100, true))
+    await pipeline.ingestChunk(makeChunk('mic', 2100, 50, false))
+
+    // Stop session before first inference completes
+    pipeline.stop()
+
+    resolveFirstInference()
+    await ingest1
+    await new Promise((r) => setTimeout(r, 30))
+
+    // Queued window was discarded by stop(); transcribe was never invoked for second window
+    expect(queuedProvider.transcribe).toHaveBeenCalledTimes(1)
+    expect(pipeline.getState().segmentCount).toBe(0)
+  })
 })
