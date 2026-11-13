@@ -36,6 +36,32 @@ describe('question-detector: detectQuestionInText & evaluateSegmentForQuestion',
       expect(res.isQuestion).toBe(false)
       expect(res.confidence).toBe(0)
     })
+
+    it('detects Ukrainian question wrapped in guillemets/quotes', () => {
+      const res = detectQuestionInText('«Що таке алгоритм сортування?»')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('uk')
+      expect(res.matchedPattern).toBe('що')
+    })
+
+    it('detects conversational Ukrainian prefix followed by interrogative', () => {
+      const res = detectQuestionInText('А що це означає у коді')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('uk')
+      expect(res.matchedPattern).toBe('а що')
+    })
+
+    it('detects polite Ukrainian request patterns', () => {
+      const res = detectQuestionInText('Підкажіть, будь ласка, як це працює')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('uk')
+      expect(res.matchedPattern).toBe('підкажіть')
+    })
+
+    it('rejects Ukrainian statement containing що in non-question position', () => {
+      const res = detectQuestionInText('Я точно знаю, що ця функція повертає число.')
+      expect(res.isQuestion).toBe(false)
+    })
   })
 
   describe('detectQuestionInText — English', () => {
@@ -61,6 +87,25 @@ describe('question-detector: detectQuestionInText & evaluateSegmentForQuestion',
       expect(res.language).toBe('en')
       expect(res.confidence).toBe(0.85)
       expect(res.matchedPattern).toBe('why')
+    })
+
+    it('detects conversational English prefix followed by interrogative', () => {
+      const res = detectQuestionInText('So what does this function do')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('en')
+      expect(res.matchedPattern).toBe('so what')
+    })
+
+    it('detects polite English requests', () => {
+      const res = detectQuestionInText('Could anyone explain this issue')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('en')
+      expect(res.matchedPattern).toBe('could anyone')
+    })
+
+    it('rejects ordinary English statements containing what in subordinate clause', () => {
+      const res = detectQuestionInText('The engineer knows what needs to be changed.')
+      expect(res.isQuestion).toBe(false)
     })
 
     it('rejects ordinary English statements', () => {
