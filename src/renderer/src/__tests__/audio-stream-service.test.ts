@@ -67,8 +67,9 @@ describe('AudioStreamService & PCM Conversion', () => {
       }
 
       // Mock AudioContext constructor
-      // @ts-expect-error Mocking global AudioContext
-      window.AudioContext = vi.fn().mockImplementation(() => mockAudioContext)
+      ;(window as unknown as { AudioContext: unknown }).AudioContext = vi
+        .fn()
+        .mockImplementation(() => mockAudioContext)
 
       // Mock navigator.mediaDevices
       Object.defineProperty(navigator, 'mediaDevices', {
