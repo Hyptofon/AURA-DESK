@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { App } from '../App'
-import type { AudioSessionState } from '../../../shared/contracts/audio'
+import type { AudioSessionState } from '@/shared/contracts/audio'
 
 describe('<App /> Component', () => {
   let audioStateListener: ((state: AudioSessionState) => void) | null = null
