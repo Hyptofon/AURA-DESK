@@ -211,5 +211,42 @@ describe('SpeechToTextProvider Contract & Speech Windowing', () => {
       // Subsequent flush is null
       expect(assembler.flush()).toBeNull()
     })
+
+    it('accurately handles chunks with odd byte offsets without throwing or corrupting sample data', () => {
+      const assembler = new SpeechWindowAssembler('mic', { minSpeechDurationMs: 200 })
+
+      // Create a buffer with known 16-bit values starting at an odd byte offset (offset 1)
+      const raw = Buffer.alloc(1 + 1600 * 2)
+      raw[0] = 0x7f // padding byte making subarray offset odd
+      for (let i = 0; i < 1600; i++) {
+        raw.writeInt16LE(i * 10, 1 + i * 2)
+      }
+
+      // Slice from offset 1 so byteOffset is 1 (odd)
+      const oddChunkData = raw.subarray(1)
+      expect(oddChunkData.byteOffset % 2).toBe(1)
+
+      const oddChunk: AudioChunk = {
+        id: 'odd-chunk-1',
+        source: 'mic',
+        timestamp: 1000,
+        durationMs: 200,
+        sampleRate: 16000,
+        channels: 1,
+        data: oddChunkData,
+        rms: 0.05,
+        isSpeech: true
+      }
+
+      assembler.ingest(oddChunk)
+      const window = assembler.flush()
+
+      expect(window).not.toBeNull()
+      expect(window!.data.length).toBe(1600)
+      expect(window!.data[0]).toBe(0)
+      expect(window!.data[1]).toBe(10)
+      expect(window!.data[50]).toBe(500)
+      expect(window!.data[1599]).toBe(15990)
+    })
   })
 })
