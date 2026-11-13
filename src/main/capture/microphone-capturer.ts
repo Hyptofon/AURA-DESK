@@ -4,7 +4,7 @@ import type {
   AudioDevice,
   AudioBufferStats,
   VadStatus
-} from '../../shared/contracts/audio'
+} from '@/shared/contracts/audio'
 import { EnergyVad } from './audio-vad'
 import { AudioRingBuffer } from './audio-ring-buffer'
 
