@@ -113,10 +113,12 @@ describe('EnergyVad & RMS Audio Processing', () => {
         vad.process(speechChunk, 20)
       }
       expect(vad.getStatus().isSpeech).toBe(true)
+      expect(vad.getStatus().rms).toBeGreaterThan(0.015)
 
       vad.reset()
       const resetStatus = vad.getStatus()
       expect(resetStatus.isSpeech).toBe(false)
+      expect(resetStatus.rms).toBe(0)
       expect(resetStatus.speechDurationMs).toBe(0)
       expect(resetStatus.silenceDurationMs).toBe(0)
     })
