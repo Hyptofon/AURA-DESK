@@ -251,6 +251,21 @@ describe('Real Preload AuraApi and Context Isolation', () => {
         expect(result).toEqual(fakeDevices)
       })
 
+      it('calls AUDIO_SUBMIT_CHUNK channel with chunk payload', async () => {
+        const fakeChunk = {
+          source: 'mic' as const,
+          data: new Uint8Array([1, 2, 3]),
+          timestamp: 1700000000,
+          durationMs: 64
+        }
+        mockInvoke.mockResolvedValueOnce({ ok: true, data: { accepted: true } })
+
+        const result = await auraApi.submitAudioChunk!(fakeChunk)
+
+        expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, fakeChunk)
+        expect(result).toEqual({ accepted: true })
+      })
+
       it('subscribes to AUDIO_STATE_CHANGED and unsubscribes cleanly', () => {
         const callback = vi.fn()
         const unsubscribe = auraApi.onAudioStateChanged!(callback)
