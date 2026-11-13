@@ -107,6 +107,7 @@
   * UI State Synchronization: updated `src/renderer/src/App.tsx` to include `audioState.system.status === 'paused'` in pause/resume detection and added toggle rollback on backend rejection to prevent desync between checkboxes and runtime state.
   * Preload Cleanup Verification: added invariant test in `test/unit/production-invariants.test.ts` verifying that `onAudioStateChanged` returns an unsubscribe handler calling `removeListener`.
   * Full TypeScript Compilation Coverage for Tests: added `test/**/*` to `tsconfig.node.json`, eliminating a blind spot where `npm run typecheck` previously checked only `src/`. Resolved all static type errors across test suites (`electron-loopback-backend.test.ts`, `audio-ipc.test.ts`, `ipc-contracts.test.ts`, `ipc-handlers.test.ts`, `mediastream-pipeline.test.ts`). Recorded Lesson 21 in `docs/ENGINEERING_LESSONS.md`.
+  * Project-Wide @ Path Alias Migration: configured `@/*` mapping to `src/*` across `tsconfig.node.json`, `tsconfig.web.json`, `electron.vite.config.ts`, and `vitest.config.ts`. Replaced fragile relative `../../` imports with clean `@/` path aliases across all 50+ source and test files with individual atomic commits.
   * Quality Status: 30 test suites, 406 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
 
 ### Capture Backend Architecture & Trade-Offs Analysis:
