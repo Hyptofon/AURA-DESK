@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createDualCaptureBackends, type CaptureSessionFactory } from '../../src/main/capture/dual-capture-backends'
+import { createDualCaptureBackends, type CaptureSessionFactory } from '@/main/capture/dual-capture-backends'
 import type {
   DisplayMediaRequest,
   DisplayStreams,
   MediaStreamSessionLike
-} from '../../src/main/capture/mediastream-backend'
-import type { CaptureTarget } from '../../src/shared/contracts/capture'
-import { CaptureWindowClient } from '../../src/main/capture/capture-window-client'
+} from '@/main/capture/mediastream-backend'
+import type { CaptureTarget } from '@/shared/contracts/capture'
+import { CaptureWindowClient } from '@/main/capture/capture-window-client'
 
 type MediaHandler = (request: DisplayMediaRequest, callback: (streams: DisplayStreams | null) => void) => void
 
