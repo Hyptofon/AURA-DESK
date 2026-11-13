@@ -217,4 +217,85 @@ describe('<App /> Component', () => {
       expect.objectContaining({ mic: false, system: true })
     )
   })
+
+  it('detects system-only paused state and sends resume when clicked', async () => {
+    let audioStateCb: ((state: unknown) => void) | null = null
+    window.api.onAudioStateChanged = vi.fn((cb) => {
+      audioStateCb = cb
+      return () => {}
+    })
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    // Simulate system audio paused
+    await act(async () => {
+      audioStateCb?.({
+        mic: {
+          enabled: false,
+          status: 'idle',
+          deviceId: null,
+          bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null },
+          vad: { isSpeech: false, rms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
+        },
+        system: {
+          enabled: true,
+          status: 'paused',
+          bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null }
+        }
+      })
+    })
+
+    const resumeBtn = screen.getByRole('button', { name: /Продовжити/i })
+    expect(resumeBtn).toBeEnabled()
+
+    await act(async () => {
+      fireEvent.click(resumeBtn)
+    })
+
+    expect(window.api.setAudioConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ paused: false })
+    )
+  })
+
+  it('rolls back mic checkbox state if setAudioConfig throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.api.setAudioConfig = vi.fn().mockRejectedValueOnce(new Error('Audio permission denied'))
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    const micCheckbox = screen.getByTestId('toggle-mic')
+    expect(micCheckbox).not.toBeChecked()
+
+    await act(async () => {
+      fireEvent.click(micCheckbox)
+    })
+
+    expect(window.api.setAudioConfig).toHaveBeenCalled()
+    expect(micCheckbox).not.toBeChecked()
+    consoleSpy.mockRestore()
+  })
+
+  it('rolls back system audio checkbox state if setAudioConfig throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.api.setAudioConfig = vi.fn().mockRejectedValueOnce(new Error('System audio loopback error'))
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    const systemCheckbox = screen.getByTestId('toggle-system-audio')
+    expect(systemCheckbox).not.toBeChecked()
+
+    await act(async () => {
+      fireEvent.click(systemCheckbox)
+    })
+
+    expect(window.api.setAudioConfig).toHaveBeenCalled()
+    expect(systemCheckbox).not.toBeChecked()
+    consoleSpy.mockRestore()
+  })
 })
