@@ -15,10 +15,10 @@
 ## ADR-005: Local SQLite FTS5 first, embeddings later — PROVISIONAL
 Для персональних нотаток — мінімальна складність. Підтвердити, що обрана SQLite binding підтримує Electron packaging та Windows runtime.
 
-## ADR-006: System audio capture approach — ACCEPTED (Electron loopback first; NAudio fallback reserved)
-**Рішення:** Обрано нативний підхід Electron 28+ з ізольованою сесією `in-memory:aura-audio-loopback` та `session.setDisplayMediaRequestHandler({ audio: 'loopback' })`.
-**Переваги:** Чистий TypeScript/JS без зовнішніх бінарників, C#/.NET runtime залежностей чи сторонніх DLL; повна інтеграція з Chromium Web Audio; нульові накладні витрати на міжпроцесну серіалізацію через stdout; незалежні обмежені кільцеві буфери пам'яті (5MB / 30с).
-**Hardware fallback:** Окремий консольний помічник на C# / NAudio (WASAPI Loopback) зарезервовано виключно як апаратний fallback, якщо фізичний аудіодрайвер користувача на Windows вимагає прямого WASAPI захоплення.
+## ADR-006: System audio capture approach — FINALIZED & VERIFIED (Electron Loopback Production; NAudio Reserved Fallback)
+**Рішення:** Обрано та остаточно верифіковано нативний підхід Electron/Chromium з ізольованою сесією та session.setDisplayMediaRequestHandler({ audio: 'loopback' }) безпосередньо з авторизованого mainWindow.webContents.mainFrame.
+**Верифікація на залізі (GATE-2):** Фізичні випробування користувача на реальному комп'ютері з Windows 10/11 повністю підтвердили якісне захоплення системного аудіо через навушники (active RMS 0.067731 vs paused RMS 0.000007), одночасну роботу з мікрофоном і VAD, безпечну зупинку треків на паузі та нульове збереження даних на диску й у RAM після зупинки (0 chunks, 0 bytes).
+**Висновок:** Electron Loopback затверджено як основну й остаточну production-архітектуру аудіо. Окремий консольний помічник на C# / NAudio не потрібен для цієї конфігурації обладнання й зберігається виключно як теоретичний резервний fallback для нестандартних аудіокарт.
 
 ## ADR-007: STT local vs remote — OPEN, BLOCKS PHASE P3
 Перевірити latency/UA+EN speech quality локально та системне навантаження. Зберегти интерфейс так, щоб поміняти provider без рефакторингу core.
