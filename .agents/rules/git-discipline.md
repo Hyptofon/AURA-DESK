@@ -16,6 +16,6 @@ description: Mandatory one-file-per-commit Git policy, clean staging discipline,
 9. If a tool stages more than one file, unstage only your own paths and correct the index. Do not mutate or unstage pre-existing user changes without approval.
 10. Abort commit if hook rejects it; never use a loophole or manual alternate Git index.
 11. Feature branch & PR workflow: each task must be developed in a dedicated feature branch (`feat/`, `fix/`, `docs/`, etc.) branched from up-to-date `main`. See `docs/DEVELOPMENT_WORKFLOW.md`. Direct commits and pushes of new tasks to `main` are strictly forbidden.
-12. Pushing & Merge Policy: Feature branches are pushed to `origin` for Pull Request creation. Automatic merge is strictly forbidden. Merge into `main` requires independent review (ChatGPT) and explicit user approval. Never force-push or squash commits.
+12. Pushing & Merge Policy: Feature branches are pushed to `origin` for Pull Request creation. Automatic merge is forbidden by default and requires independent review (ChatGPT) and explicit user approval, except where explicitly authorized by user task scope (e.g. fast MVP execution for P1.4 and P2.1–P2.4 after full local validation and internal self-review). Never force-push or squash commits.
 
 **Rationale:** User explicitly wants forensic, auditable single-file history even at the cost of many commits. This is intentional, not general Git best-practice advice.

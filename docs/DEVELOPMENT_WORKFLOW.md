@@ -126,10 +126,10 @@ flowchart TD
 
 ## 6. Політика злиття (Merge Policy — ABSOLUTE)
 
-**AUTOMATIC MERGE IS FORBIDDEN.**
+**AUTOMATIC MERGE IS FORBIDDEN BY DEFAULT.**
 
 **Суворо заборонено без явного дозволу користувача:**
-- Зливати (Merge) Pull Request у гілку `main`.
+- Зливати (Merge) Pull Request у гілку `main` (за винятком чітко авторизованого обсягу завдань, наприклад швидкого MVP для P1.4 та P2.1–P2.4 за наявності зелених перевірок якості та внутрішнього self-review).
 - Робити Squash merge (знищує атомарну історію однофайлових комітів).
 - Робити Rebase merge.
 - Пушити коміти нових завдань напряму в `main`.

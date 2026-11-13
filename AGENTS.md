@@ -9,7 +9,7 @@
 3. Announce a concise plan with task ID, files, dependencies, tests, and risks. Do not silently broaden scope.
 4. Select appropriate `.agents/skills/<name>/SKILL.md`; use as a workflow, not as a replacement for this file.
 5. Follow strict **1 FILE = 1 COMMIT** policy from `.agents/rules/git-discipline.md`. No exceptions for scaffolding, code/tests, formatting, documentation, generated files. Do not bypass hooks.
-6. Follow mandatory branch, Pull Request, and review workflow in `docs/DEVELOPMENT_WORKFLOW.md`. All tasks must be done in dedicated feature branches, pushed for Pull Request creation, and stopped for independent review. Automatic merge to `main` and direct push to `main` are strictly forbidden.
+6. Follow mandatory branch, Pull Request, and review workflow in `docs/DEVELOPMENT_WORKFLOW.md`. All tasks must be done in dedicated feature branches and pushed for Pull Request creation. Automatic merge to `main` is forbidden by default, except where explicitly authorized by user task scope (e.g. fast MVP execution for P1.4 and P2.1–P2.4 after code-level validation and internal self-review). Direct push to `main` is strictly forbidden.
 7. **Strict Codex & Paid AI Ban**: Never invoke `@codex review`, `@codex security review`, `@codex address that feedback`, Codex Cloud tasks, Codex CLI/extensions/API, or any paid external AI review services without explicit user authorization. Independent code review is conducted exclusively by ChatGPT in standard conversational chat initiated by the user. Absence of a Codex review is never a blocker.
 
 ## Non-negotiable product invariants
@@ -38,6 +38,6 @@ In every implementation result say:
 - exact tests executed and result, or explicitly `NOT RUN` / `NOT AVAILABLE`;
 - real evidence vs assumptions, blockers, review state (`IMPLEMENTED`, `IN REVIEW`, `MERGED`);
 - update `docs/PROGRESS.md` and `docs/ROADMAP.md` in **their own individual commits** after verification (never falsely check Done).
-- confirmation that NO automatic merge was performed and NO autonomous Codex review was triggered.
+- confirmation that merge conformed to authorization (or PR remained in review) and NO autonomous Codex review was triggered.
 
 If a requested step cannot be completed without real Windows device/API access, produce a reproducible minimal experiment and give exact commands for user execution; record status `BLOCKED/NEEDS MANUAL TEST`, not passed.
