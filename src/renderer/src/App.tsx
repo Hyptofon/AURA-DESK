@@ -60,6 +60,7 @@ export function App(): React.JSX.Element {
   }, [])
 
   const handleToggleMic = useCallback(async (enabled: boolean) => {
+    const prevConfig = audioConfig
     const nextConfig: AudioConfig = { ...audioConfig, mic: enabled }
     setAudioConfig(nextConfig)
     if (window.api?.setAudioConfig) {
@@ -67,12 +68,14 @@ export function App(): React.JSX.Element {
         const state = await window.api.setAudioConfig(nextConfig)
         setAudioState(state)
       } catch (err) {
+        setAudioConfig(prevConfig)
         console.error('Failed to update mic config:', err)
       }
     }
   }, [audioConfig])
 
   const handleToggleSystem = useCallback(async (enabled: boolean) => {
+    const prevConfig = audioConfig
     const nextConfig: AudioConfig = { ...audioConfig, system: enabled }
     setAudioConfig(nextConfig)
     if (window.api?.setAudioConfig) {
@@ -80,6 +83,7 @@ export function App(): React.JSX.Element {
         const state = await window.api.setAudioConfig(nextConfig)
         setAudioState(state)
       } catch (err) {
+        setAudioConfig(prevConfig)
         console.error('Failed to update system audio config:', err)
       }
     }
@@ -97,7 +101,10 @@ export function App(): React.JSX.Element {
   }, [])
 
   const handlePauseResume = useCallback(async () => {
-    const isCurrentlyPaused = sessionStatus === 'paused' || audioState?.mic.status === 'paused'
+    const isCurrentlyPaused =
+      sessionStatus === 'paused' ||
+      audioState?.mic.status === 'paused' ||
+      audioState?.system.status === 'paused'
     const nextPaused = !isCurrentlyPaused
     if (window.api?.setAudioConfig) {
       try {

@@ -81,6 +81,15 @@ describe('DPI Bounds Mapping & Windows Scaling', () => {
     expect(matchesDisplayBounds({ x: 0, y: 0, width: 1920, height: 1080 }, primary)).toBe(true)
   })
 
+  it('matchesDisplayBounds: bidirectionally matches logical candidate when target is physical', () => {
+    const targetPhysical = {
+      bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+      scaleFactor: 1.25
+    }
+    const candidateLogical = { x: 0, y: 0, width: 1536, height: 864 }
+    expect(matchesDisplayBounds(candidateLogical, targetPhysical)).toBe(true)
+  })
+
   it('matchesDisplayBounds: returns false for mismatched coordinates', () => {
     const target = {
       bounds: { x: 0, y: 0, width: 1920, height: 1080 },

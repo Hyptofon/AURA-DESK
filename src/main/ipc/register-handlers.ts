@@ -515,12 +515,18 @@ export function registerIpcHandlers(
 
       try {
         const source = runningMode === 'both' && dual ? dual : capturer
-        await source.stop()
-        if (activeAudioSupervisor) {
-          await activeAudioSupervisor.stopAll()
-        }
+        const results = await Promise.allSettled([
+          source.stop(),
+          activeAudioSupervisor ? activeAudioSupervisor.stopAll() : Promise.resolve()
+        ])
         runningMode = null
         currentSessionStatus = 'idle'
+
+        const stopFailure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+        if (stopFailure) {
+          throw stopFailure.reason
+        }
+
         const responsePayload = { success: true, status: source.getStatus() }
         return { ok: true, data: SessionStopResponseSchema.parse(responsePayload) }
       } catch (err) {

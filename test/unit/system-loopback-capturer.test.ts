@@ -68,12 +68,23 @@ describe('SystemLoopbackCapturer Supervisor', () => {
     expect(statusUpdates).toEqual(['starting', 'active'])
   })
 
-  it('rejects start if already active', async () => {
+  it('rejects start if already active or starting', async () => {
     const backend = new FakeLoopbackBackend()
     const capturer = new SystemLoopbackCapturer(backend)
 
     await capturer.start()
-    await expect(capturer.start()).rejects.toThrow(/already active/)
+    await expect(capturer.start()).rejects.toThrow(/already starting or active/)
+  })
+
+  it('rejects concurrent start if already starting', async () => {
+    const backend = new FakeLoopbackBackend()
+    backend.startDelayMs = 50
+    const capturer = new SystemLoopbackCapturer(backend)
+
+    const firstStart = capturer.start()
+    await expect(capturer.start()).rejects.toThrow(/already starting or active/)
+    await firstStart
+    expect(capturer.getStatus()).toBe('active')
   })
 
   it('fails closed and enters error state when loopback start fails', async () => {

@@ -91,8 +91,8 @@ export class MicrophoneCapturer {
    * Starts microphone capture with optional explicit device selection.
    */
   async start(deviceId?: string): Promise<void> {
-    if (this.status === 'active') {
-      throw new Error('Microphone capture is already active')
+    if (this.status === 'active' || this.status === 'starting') {
+      throw new Error('Microphone capture is already starting or active')
     }
 
     const currentGen = ++this.sessionGeneration
@@ -193,13 +193,21 @@ export class MicrophoneCapturer {
       return
     }
 
-    // Process chunk through VAD using Int16 view of PCM bytes
+    // Process chunk through VAD using Int16 view of PCM bytes with alignment safety
     const sampleCount = Math.floor(rawChunk.data.byteLength / 2)
-    const int16Samples = new Int16Array(
-      rawChunk.data.buffer,
-      rawChunk.data.byteOffset,
-      sampleCount
-    )
+    const int16Samples =
+      rawChunk.data.byteOffset % 2 === 0
+        ? new Int16Array(
+            rawChunk.data.buffer,
+            rawChunk.data.byteOffset,
+            sampleCount
+          )
+        : new Int16Array(
+            rawChunk.data.buffer.slice(
+              rawChunk.data.byteOffset,
+              rawChunk.data.byteOffset + sampleCount * 2
+            )
+          )
 
     const vadResult = this.vad.process(int16Samples, rawChunk.durationMs)
 

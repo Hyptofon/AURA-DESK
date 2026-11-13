@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 30 suites, 398 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 30 suites, 406 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines).
 - [ ] Product acceptance criteria verified.
 
@@ -98,6 +98,15 @@
     - Zero recording badges rendered when stopped or idle.
   * Unit Tests: 7 lifecycle and privacy tests in `audio-lifecycle-privacy.test.ts` and 9 UI tests in `App.test.tsx` passing green.
   * Full Suite Status: 30 test suites, 398 tests passing green. Zero typecheck errors, zero ESLint warnings, clean build.
+- Independent Staff Expert Audit & Defect Repair across M1 & M2 (P1.4 + GATE-1, P2.1-P2.4 + GATE-2):
+  * Dual-Subsystem Teardown Safety: resolved critical defect in `src/main/ipc/register-handlers.ts` where sequential `await` caused audio supervisor teardown to be skipped if screen capturer threw. Replaced with `Promise.allSettled`, guaranteeing that microphone/loopback buffers and tracks are stopped and cleared even on screen backend errors.
+  * Concurrent Start Protection: hardened `MicrophoneCapturer` and `SystemLoopbackCapturer` against parallel `start()` invocations while state is `'starting'`, rejecting with descriptive error.
+  * Real Measured VAD RMS: fixed `EnergyVad.getStatus()` reporting static `0` by recording `lastRms` on every processed PCM frame, allowing real-time monitoring of microphone audio levels.
+  * Byte-Offset Buffer Alignment: fixed `MicrophoneCapturer` TypedArray crash (`RangeError`) on unaligned `byteOffset % 2 !== 0` by adding alignment verification and slice fallback before `Int16Array` construction.
+  * Bidirectional DPI Matching: enhanced `matchesDisplayBounds` in `src/main/capture/dpi-bounds.ts` to bidirectionally evaluate physical vs logical DIP bounds across scaling factors.
+  * UI State Synchronization: updated `src/renderer/src/App.tsx` to include `audioState.system.status === 'paused'` in pause/resume detection and added toggle rollback on backend rejection to prevent desync between checkboxes and runtime state.
+  * Preload Cleanup Verification: added invariant test in `test/unit/production-invariants.test.ts` verifying that `onAudioStateChanged` returns an unsubscribe handler calling `removeListener`.
+  * Quality Status: 30 test suites, 406 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
 
 ### Capture Backend Architecture & Trade-Offs Analysis:
 1. **Architecture 1 — Electron `desktopCapturer` in Main process**:
