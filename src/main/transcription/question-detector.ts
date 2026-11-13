@@ -26,6 +26,7 @@ const UK_INTERROGATIVE_WORDS = [
 ]
 
 const UK_CONVERSATIONAL_PREFIXES = ['а', 'і', 'та', 'ну', 'от', 'тож']
+const UK_REQUEST_PREAMBLES = [...UK_CONVERSATIONAL_PREFIXES, 'будь ласка', 'привіт', 'слухай', 'слухайте']
 
 const UK_REQUEST_PATTERNS = [
   'можеш пояснити',
@@ -40,8 +41,6 @@ const UK_REQUEST_PATTERNS = [
   'розкажіть',
   'допоможи',
   'допоможіть',
-  'як зробити',
-  'як це зробити',
   'скажи',
   'скажіть'
 ]
@@ -59,6 +58,7 @@ const EN_INTERROGATIVE_WORDS = [
 ]
 
 const EN_CONVERSATIONAL_PREFIXES = ['and', 'so', 'well', 'now', 'then', 'but']
+const EN_REQUEST_PREAMBLES = [...EN_CONVERSATIONAL_PREFIXES, 'please', 'hello', 'hi', 'hey', 'excuse me']
 
 const EN_REQUEST_PATTERNS = [
   'can you',
@@ -66,17 +66,69 @@ const EN_REQUEST_PATTERNS = [
   'would you',
   'can someone',
   'could anyone',
+  'can we',
+  'can i',
+  'could we',
   'is there',
   'are there',
+  'is this',
+  'is that',
+  'is it',
+  'are you',
+  'are we',
+  'are they',
   'do you',
   'does this',
+  'does it',
   'did you',
+  'did it',
   'will this',
+  'will it',
   'should we',
+  'should i',
   'explain this',
   'please explain',
   'tell me'
 ]
+
+function matchesPatternAtStart(
+  text: string,
+  pattern: string,
+  preambles: string[]
+): boolean {
+  if (text.startsWith(pattern)) {
+    const nextChar = text.charAt(pattern.length)
+    if (!nextChar || /\s/.test(nextChar)) {
+      return true
+    }
+  }
+
+  for (const preamble of preambles) {
+    const combined = `${preamble} ${pattern}`
+    if (text.startsWith(combined)) {
+      const nextChar = text.charAt(combined.length)
+      if (!nextChar || /\s/.test(nextChar)) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+function matchesRequestPattern(
+  text: string,
+  pattern: string,
+  preambles: string[]
+): boolean {
+  const clauses = text.split(/[,;:—–-]/).map((c) => c.trim()).filter(Boolean)
+  for (const clause of clauses) {
+    if (matchesPatternAtStart(clause, pattern, preambles)) {
+      return true
+    }
+  }
+  return false
+}
 
 export interface DetectionResult {
   isQuestion: boolean
@@ -101,6 +153,7 @@ export function detectQuestionInText(text: string): DetectionResult {
 
   const lower = trimmed.toLowerCase()
   const hasQuestionMark = trimmed.endsWith('?') || trimmed.includes('?')
+  const cleanForMatching = lower.replace(/["'«»“”„’`]/g, '').trim()
 
   // Normalize tokens: strip quotes, brackets, and punctuation safely
   const words = lower
@@ -131,7 +184,7 @@ export function detectQuestionInText(text: string): DetectionResult {
     }
 
     for (const pattern of UK_REQUEST_PATTERNS) {
-      if (lower.startsWith(pattern) || lower.includes(pattern)) {
+      if (matchesRequestPattern(cleanForMatching, pattern, UK_REQUEST_PREAMBLES)) {
         return {
           isQuestion: true,
           confidence: hasQuestionMark ? 0.95 : 0.9,
@@ -163,7 +216,7 @@ export function detectQuestionInText(text: string): DetectionResult {
     }
 
     for (const pattern of EN_REQUEST_PATTERNS) {
-      if (lower.startsWith(pattern) || lower.includes(pattern)) {
+      if (matchesRequestPattern(cleanForMatching, pattern, EN_REQUEST_PREAMBLES)) {
         return {
           isQuestion: true,
           confidence: hasQuestionMark ? 0.95 : 0.9,
