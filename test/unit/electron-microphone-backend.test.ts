@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { ElectronMicrophoneBackend } from '../../src/main/capture/electron-microphone-backend'
-import type { AudioChunk } from '../../src/shared/contracts/audio'
+import { ElectronMicrophoneBackend } from '@/main/capture/electron-microphone-backend'
+import type { AudioChunk } from '@/shared/contracts/audio'
 
 describe('ElectronMicrophoneBackend', () => {
   it('enumerates available default microphone device', async () => {
