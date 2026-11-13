@@ -1,4 +1,4 @@
-import type { DisplayInfo } from '../../shared/contracts/channels'
+import type { DisplayInfo } from '@/shared/contracts/channels'
 import type { WindowsDisplayDevice } from './windows-display-query'
 import { matchesDisplayBounds } from './dpi-bounds'
 
