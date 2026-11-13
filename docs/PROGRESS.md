@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 31 suites, 431 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 31 suites, 438 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines).
 - [ ] Product acceptance criteria verified.
 
@@ -110,7 +110,8 @@
   * Project-Wide @ Path Alias Migration: configured `@/*` mapping to `src/*` across `tsconfig.node.json`, `tsconfig.web.json`, `electron.vite.config.ts`, and `vitest.config.ts`. Replaced fragile relative `../../` imports with clean `@/` path aliases across all 50+ source and test files with individual atomic commits.
   * Real Audio Stream Ingestion & Session Consent Alignment: implemented `AudioStreamService` (`src/renderer/src/services/audio-stream-service.ts`) converting Float32 Web Audio samples to Int16 PCM and streaming over `aura:audio-submit-chunk` to main process capturers; wired Chromium media permissions in `src/main/index.ts`; aligned user consent in `src/renderer/src/App.tsx` so checkbox toggles in `idle` mode configure session intent without touching hardware or showing badges until explicit session start via «Почати сесію»; verified dynamic toggling and full teardown on «Зупинити». Recorded Lesson 22 in `docs/ENGINEERING_LESSONS.md`.
   * Final M2 Audio Hardware Repair, Real Pause/Resume & Session Synchronization: resolved invalid loopback `getDisplayMedia` constraints with `{ video: true, audio: true }` and authorized window source in `setDisplayMediaRequestHandler`, verifying live audio track and immediately stopping and discarding temporary video tracks; implemented real pause stopping physical tracks and processors and reacquiring only user-enabled sources on resume; synchronized session status via `onSessionStatusChanged` and refreshed state on start rejection to prevent stale UI; guaranteed failed Stop does not show `idle`.
-  * Quality Status: 31 test suites, 431 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
+  * Independent Audio Generation Tokens & Fail-Closed Loopback Repair: resolved race condition in `AudioStreamService` by splitting shared `generation` counter into isolated `micGeneration` and `systemGeneration` tokens so concurrent microphone and loopback startup never cancel each other; eliminated unsafe `sources[0]` display fallback in `src/main/index.ts`, passing exclusively verified `mainWindow.webContents.mainFrame` directly as the required video source with `audio: 'loopback'` to prevent capturing arbitrary external monitors or windows; hardened `App.tsx` to stop newly opened audio tracks (`stopAll()`) and synchronize state if `startSession()` rejects or returns non-active status.
+  * Quality Status: 31 test suites, 438 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
 
 ### Capture Backend Architecture & Trade-Offs Analysis:
 1. **Architecture 1 — Electron `desktopCapturer` in Main process**:

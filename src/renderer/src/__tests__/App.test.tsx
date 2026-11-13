@@ -468,6 +468,37 @@ describe('<App /> Component', () => {
     consoleSpy.mockRestore()
   })
 
+  it('stops opened audio tracks and synchronizes state when startSession throws', async () => {
+    const { defaultAudioStreamService } = await import('../services/audio-stream-service')
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.api.getSessionState = vi.fn(async () => ({ status: 'idle' as const }))
+    window.api.startSession = vi.fn().mockRejectedValueOnce(new Error('Hardware screen capture failed'))
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    // Enable mic toggle before starting
+    const micCheckbox = screen.getByTestId('toggle-mic')
+    await act(async () => {
+      fireEvent.click(micCheckbox)
+    })
+
+    const startBtn = screen.getByRole('button', { name: /Почати сесію/i })
+    await act(async () => {
+      fireEvent.click(startBtn)
+    })
+
+    // Must invoke stopAll to cleanly tear down any partially acquired streams/tracks
+    expect(defaultAudioStreamService.stopAll).toHaveBeenCalled()
+
+    // Must NOT claim active session or show recording badge
+    expect(screen.queryByTestId('mic-recording-badge')).not.toBeInTheDocument()
+    expect(screen.getByText(/Очікування \(Сесія вимкнена\)/i)).toBeInTheDocument()
+
+    consoleSpy.mockRestore()
+  })
+
   it('calls pauseAll and updates UI when pause button is clicked', async () => {
     const { defaultAudioStreamService } = await import('../services/audio-stream-service')
     window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))

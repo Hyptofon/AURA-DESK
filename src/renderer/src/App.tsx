@@ -184,16 +184,34 @@ export function App(): React.JSX.Element {
                 })
               }
             }
+          } else {
+            // Non-active session status returned: stop newly opened audio tracks immediately
+            await defaultAudioStreamService.stopAll().catch(() => {})
           }
+        } else {
+          // No status in response indicates failed startup: stop opened audio tracks
+          await defaultAudioStreamService.stopAll().catch(() => {})
         }
       } catch (err) {
         console.error('Failed to start session:', err)
+        // Main session Start failed or threw: stop newly opened audio tracks immediately
+        await defaultAudioStreamService.stopAll().catch(() => {})
         // Refresh session state to eliminate stale UI if Start was rejected (e.g. SESSION_ACTIVE_STOP_REQUIRED)
         if (window.api?.getSessionState) {
           try {
             const state = await window.api.getSessionState()
             if (state?.status) {
               setSessionStatus(state.status)
+            }
+          } catch {
+            // Ignored
+          }
+        }
+        if (window.api?.getAudioState) {
+          try {
+            const aState = await window.api.getAudioState()
+            if (aState) {
+              setAudioState(aState)
             }
           } catch {
             // Ignored

@@ -25,7 +25,8 @@ export function float32ToInt16Pcm(input: Float32Array): Int16Array {
 }
 
 export class AudioStreamService implements AudioStreamClient {
-  private generation = 0
+  private micGeneration = 0
+  private systemGeneration = 0
 
   private micStream: MediaStream | null = null
   private micAudioContext: AudioContext | null = null
@@ -42,7 +43,7 @@ export class AudioStreamService implements AudioStreamClient {
       throw new Error('navigator.mediaDevices.getUserMedia is not supported')
     }
 
-    const currentGen = ++this.generation
+    const currentGen = ++this.micGeneration
     const constraints: MediaStreamConstraints = {
       audio: deviceId ? { deviceId: { exact: deviceId } } : true,
       video: false
@@ -51,7 +52,7 @@ export class AudioStreamService implements AudioStreamClient {
     const stream = await navigator.mediaDevices.getUserMedia(constraints)
 
     // Abort and stop tracks if teardown/pause was triggered while acquisition was in-flight
-    if (this.generation !== currentGen) {
+    if (this.micGeneration !== currentGen) {
       for (const track of stream.getTracks()) {
         track.stop()
       }
@@ -99,7 +100,7 @@ export class AudioStreamService implements AudioStreamClient {
   }
 
   async stopMicrophone(): Promise<void> {
-    ++this.generation
+    ++this.micGeneration
 
     if (this.micProcessor) {
       this.micProcessor.onaudioprocess = null
@@ -129,7 +130,7 @@ export class AudioStreamService implements AudioStreamClient {
       throw new Error('navigator.mediaDevices.getDisplayMedia is not supported')
     }
 
-    const currentGen = ++this.generation
+    const currentGen = ++this.systemGeneration
 
     // Chromium/Electron getDisplayMedia requires video: true even for audio loopback.
     const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -138,7 +139,7 @@ export class AudioStreamService implements AudioStreamClient {
     })
 
     // Abort and stop all tracks if teardown/pause was triggered while acquisition was in-flight
-    if (this.generation !== currentGen) {
+    if (this.systemGeneration !== currentGen) {
       for (const track of stream.getTracks()) {
         track.stop()
       }
@@ -212,7 +213,7 @@ export class AudioStreamService implements AudioStreamClient {
   }
 
   async stopSystemLoopback(): Promise<void> {
-    ++this.generation
+    ++this.systemGeneration
 
     if (this.systemProcessor) {
       this.systemProcessor.onaudioprocess = null
@@ -236,7 +237,8 @@ export class AudioStreamService implements AudioStreamClient {
   }
 
   async pauseAll(): Promise<void> {
-    ++this.generation
+    ++this.micGeneration
+    ++this.systemGeneration
     const results = await Promise.allSettled([this.stopMicrophone(), this.stopSystemLoopback()])
     const failure = results.find((r) => r.status === 'rejected')
     if (failure && failure.status === 'rejected') {
@@ -245,7 +247,8 @@ export class AudioStreamService implements AudioStreamClient {
   }
 
   async stopAll(): Promise<void> {
-    ++this.generation
+    ++this.micGeneration
+    ++this.systemGeneration
     const results = await Promise.allSettled([this.stopMicrophone(), this.stopSystemLoopback()])
     const failure = results.find((r) => r.status === 'rejected')
     if (failure && failure.status === 'rejected') {

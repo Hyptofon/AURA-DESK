@@ -570,6 +570,19 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
       expect(mainIndexCode).toMatch(/will-navigate[\s\S]*?isAllowedNavigation/)
     })
 
+    it('enforces fail-closed loopback display media request handler with zero arbitrary display fallback', () => {
+      const mainIndexCode = readSrc('src/main/index.ts')
+
+      // Must NEVER contain sources[0] or desktopCapturer fallback for system audio loopback
+      expect(mainIndexCode).not.toContain('sources[0]')
+      expect(mainIndexCode).not.toMatch(/desktopCapturer\.getSources/)
+
+      // Must explicitly grant authorized WebFrameMain with audio: 'loopback'
+      expect(mainIndexCode).toMatch(/setDisplayMediaRequestHandler\(/)
+      expect(mainIndexCode).toMatch(/video:\s*authorizedMainFrame/)
+      expect(mainIndexCode).toMatch(/audio:\s*['"]loopback['"]/)
+    })
+
     it('enforces sandboxed CommonJS preload bundle configuration across main and build config', () => {
       const mainIndexCode = readSrc('src/main/index.ts')
       const configCode = readSrc('electron.vite.config.ts')

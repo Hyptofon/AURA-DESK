@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, desktopCapturer } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
@@ -118,41 +118,71 @@ function createWindow(): void {
   })
 
   // Authorize system loopback audio requests exclusively from authorized main window
-  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     // Fail-closed: only authorized main window can request loopback audio
-    if (!mainWindow || !request.frame || request.frame.processId !== mainWindow.webContents.mainFrame.processId) {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      !mainWindow.webContents ||
+      mainWindow.webContents.isDestroyed() ||
+      !request.frame
+    ) {
       callback({})
       return
     }
 
-    try {
-      // Chromium getDisplayMedia requires a video source even for audio loopback.
-      // Grant only an authorized window or primary display source to satisfy the API
-      // without capturing an unrelated monitor; renderer stops and removes video immediately.
-      const sources = await desktopCapturer.getSources({
-        types: ['window', 'screen'],
-        thumbnailSize: { width: 0, height: 0 }
-      })
-
-      // Prefer application's own window so no desktop monitor is captured
-      const windowSource = sources.find(
-        (s) => s.id.startsWith('window:') && (s.name.includes('AURA DESK') || s.id.includes(String(mainWindow?.id)))
-      )
-      const selectedSource = windowSource ?? sources[0]
-
-      if (!selectedSource) {
-        callback({})
-        return
-      }
-
-      callback({
-        video: selectedSource,
-        audio: 'loopback'
-      })
-    } catch (err) {
-      console.error('Failed to resolve display media source for loopback audio:', err)
+    const authorizedMainFrame = mainWindow.webContents.mainFrame
+    if (!authorizedMainFrame) {
       callback({})
+      return
     }
+
+    // 1. Verify exact frame identity
+    const isExactFrame =
+      request.frame === authorizedMainFrame ||
+      (request.frame.processId === authorizedMainFrame.processId &&
+        request.frame.routingId === authorizedMainFrame.routingId)
+
+    if (!isExactFrame) {
+      callback({})
+      return
+    }
+
+    // 2. Verify authorized origin
+    const authorizedOrigin = isDev
+      ? (process.env['ELECTRON_RENDERER_URL'] ?? 'http://localhost:5173')
+      : 'file://'
+
+    let isAuthorizedOrigin = false
+    try {
+      if (isDev) {
+        const expectedOrigin = new URL(authorizedOrigin).origin
+        isAuthorizedOrigin =
+          Boolean(request.securityOrigin) &&
+          new URL(request.securityOrigin).origin === expectedOrigin
+      } else {
+        isAuthorizedOrigin =
+          request.securityOrigin === 'file://' ||
+          request.securityOrigin === 'file:///' ||
+          request.securityOrigin.startsWith('file://')
+      }
+    } catch {
+      isAuthorizedOrigin = false
+    }
+
+    if (!isAuthorizedOrigin) {
+      callback({})
+      return
+    }
+
+    // 3. Grant exclusively authorized WebFrameMain as video source with audio: 'loopback'.
+    // Chromium getDisplayMedia requires a video source for system audio loopback.
+    // Providing the verified AURA DESK WebFrameMain guarantees no arbitrary desktop
+    // monitor or third-party window is captured. Video track is discarded by renderer immediately.
+    callback({
+      video: authorizedMainFrame,
+      audio: 'loopback'
+    })
   })
 
   // Forward validated display hotplug and metrics events to authorized window
