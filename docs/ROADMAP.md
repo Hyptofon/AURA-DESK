@@ -27,7 +27,7 @@
 
 ## Milestone M3 — Transcription and question detection
 
-- [ ] **P3.1** STT provider interface with fake adapter, UA/EN fixtures.
+- [x] **P3.1** STT provider interface with fake adapter, UA/EN fixtures. (COMPLETED & VERIFIED: defined typed SpeechToTextProvider contract, 16kHz mono audio normalization with anti-aliased decimation/resampling, UA/EN speech fixtures, deterministic FakeSttProvider with abort signal handling, and VAD-governed SpeechWindowAssembler; 22 unit tests green).
 - [ ] **P3.2** Connect local `whisper.cpp` or verified remote route (per ADR).
 - [ ] **P3.3** Finalized transcript segments + source/time & question candidates.
 - [ ] **P3.4** Debounce, confidence, cooldown, dedup, cancel tests.
