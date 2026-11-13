@@ -3,7 +3,7 @@ import {
   toPhysicalBounds,
   toLogicalBounds,
   matchesDisplayBounds
-} from '../../src/main/capture/dpi-bounds'
+} from '@/main/capture/dpi-bounds'
 
 describe('DPI Bounds Mapping & Windows Scaling', () => {
   it('toPhysicalBounds: scales 100% (1.0) without changing dimensions', () => {
