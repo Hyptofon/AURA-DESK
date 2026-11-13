@@ -35,6 +35,7 @@ export class EnergyVad {
   private isSpeechActive = false
   private speechDurationMs = 0
   private silenceDurationMs = 0
+  private lastRms = 0
 
   constructor(options?: VadOptions) {
     this.energyThreshold = options?.energyThreshold ?? 0.015
@@ -48,6 +49,7 @@ export class EnergyVad {
   process(samples: Float32Array | Int16Array, chunkDurationMs: number): VadStatus {
     const duration = Number.isFinite(chunkDurationMs) && chunkDurationMs > 0 ? chunkDurationMs : 20
     const rms = calculateRms(samples)
+    this.lastRms = rms
 
     if (rms >= this.energyThreshold) {
       this.speechDurationMs += duration
@@ -80,12 +82,13 @@ export class EnergyVad {
     this.isSpeechActive = false
     this.speechDurationMs = 0
     this.silenceDurationMs = 0
+    this.lastRms = 0
   }
 
   getStatus(): VadStatus {
     return {
       isSpeech: this.isSpeechActive,
-      rms: 0,
+      rms: this.lastRms,
       speechDurationMs: this.speechDurationMs,
       silenceDurationMs: this.silenceDurationMs
     }
