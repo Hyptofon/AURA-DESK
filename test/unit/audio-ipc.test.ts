@@ -94,6 +94,7 @@ describe('P2.3 Audio IPC Registration and Validation', () => {
       enumerateDevices: vi.fn(async (): Promise<AudioDevice[]> => [
         { id: 'default', label: 'Default Microphone', isDefault: true }
       ]),
+      stopAll: vi.fn(async () => {}),
       onStateChanged: vi.fn((cb: (state: AudioSessionState) => void) => {
         stateListenerCallback = cb
         return () => {
@@ -293,5 +294,38 @@ describe('P2.3 Audio IPC Registration and Validation', () => {
     expect(stateListenerCallback).not.toBeNull()
     unregisterIpcHandlers(ipc)
     expect(stateListenerCallback).toBeNull()
+  })
+
+  it('guarantees audio teardown via stopAll on SESSION_STOP even if screen capturer stop throws', async () => {
+    const failingCapturer = {
+      stop: vi.fn(async () => {
+        throw new Error('Screen backend hardware release failed')
+      }),
+      getStatus: () => 'error' as const,
+      onStatusChange: () => () => {},
+      getActiveDisplayId: () => null,
+      getBufferStats: () => ({ frameCount: 0, totalBytes: 0, newestTimestamp: null })
+    }
+
+    registerIpcHandlers(
+      ipc,
+      { validate: () => ({ valid: true }) },
+      undefined,
+      failingCapturer as never,
+      undefined,
+      mockSupervisor as unknown as IntegratedAudioSupervisor
+    )
+
+    const res = await ipc.invoke(IPC_CHANNELS.SESSION_STOP)
+
+    // Stop must fail closed with error from the failed screen capturer
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.error.code).toBe('CAPTURE_STOP_FAILED')
+      expect(res.error.message).toContain('Screen backend hardware release failed')
+    }
+
+    // Audio supervisor stopAll must still have been called to guarantee zero retention
+    expect(mockSupervisor.stopAll).toHaveBeenCalledOnce()
   })
 })
