@@ -1,4 +1,4 @@
-import type { DisplayBounds } from '../../shared/contracts/channels'
+import type { DisplayBounds } from '@/shared/contracts/channels'
 
 /**
  * Converts logical display bounds (Device Independent Pixels - DIPs)
