@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 31 suites, 424 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 31 suites, 431 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines).
 - [ ] Product acceptance criteria verified.
 
@@ -109,7 +109,8 @@
   * Full TypeScript Compilation Coverage for Tests: added `test/**/*` to `tsconfig.node.json`, eliminating a blind spot where `npm run typecheck` previously checked only `src/`. Resolved all static type errors across test suites (`electron-loopback-backend.test.ts`, `audio-ipc.test.ts`, `ipc-contracts.test.ts`, `ipc-handlers.test.ts`, `mediastream-pipeline.test.ts`). Recorded Lesson 21 in `docs/ENGINEERING_LESSONS.md`.
   * Project-Wide @ Path Alias Migration: configured `@/*` mapping to `src/*` across `tsconfig.node.json`, `tsconfig.web.json`, `electron.vite.config.ts`, and `vitest.config.ts`. Replaced fragile relative `../../` imports with clean `@/` path aliases across all 50+ source and test files with individual atomic commits.
   * Real Audio Stream Ingestion & Session Consent Alignment: implemented `AudioStreamService` (`src/renderer/src/services/audio-stream-service.ts`) converting Float32 Web Audio samples to Int16 PCM and streaming over `aura:audio-submit-chunk` to main process capturers; wired Chromium media permissions in `src/main/index.ts`; aligned user consent in `src/renderer/src/App.tsx` so checkbox toggles in `idle` mode configure session intent without touching hardware or showing badges until explicit session start via «Почати сесію»; verified dynamic toggling and full teardown on «Зупинити». Recorded Lesson 22 in `docs/ENGINEERING_LESSONS.md`.
-  * Quality Status: 31 test suites, 424 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
+  * Final M2 Audio Hardware Repair, Real Pause/Resume & Session Synchronization: resolved invalid loopback `getDisplayMedia` constraints with `{ video: true, audio: true }` and authorized window source in `setDisplayMediaRequestHandler`, verifying live audio track and immediately stopping and discarding temporary video tracks; implemented real pause stopping physical tracks and processors and reacquiring only user-enabled sources on resume; synchronized session status via `onSessionStatusChanged` and refreshed state on start rejection to prevent stale UI; guaranteed failed Stop does not show `idle`.
+  * Quality Status: 31 test suites, 431 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
 
 ### Capture Backend Architecture & Trade-Offs Analysis:
 1. **Architecture 1 — Electron `desktopCapturer` in Main process**:
