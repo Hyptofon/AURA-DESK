@@ -15,10 +15,12 @@ import type {
 } from '@/shared/contracts/questions'
 import { SpeechWindowAssembler, type SpeechWindowOptions } from './speech-window'
 import { evaluateSegmentForQuestion } from './question-detector'
+import { QuestionControls, type QuestionControlsOptions } from './question-controls'
 
 export interface TranscriptionPipelineOptions {
   provider: SpeechToTextProvider
   windowOptions?: SpeechWindowOptions
+  controlsOptions?: QuestionControlsOptions
   maxSegments?: number
   maxQuestions?: number
 }
@@ -27,6 +29,7 @@ export class TranscriptionPipeline {
   private readonly provider: SpeechToTextProvider
   private readonly micAssembler: SpeechWindowAssembler
   private readonly systemAssembler: SpeechWindowAssembler
+  private readonly questionControls: QuestionControls
   private readonly maxSegments: number
   private readonly maxQuestions: number
 
@@ -45,6 +48,7 @@ export class TranscriptionPipeline {
 
     this.micAssembler = new SpeechWindowAssembler('mic', options.windowOptions)
     this.systemAssembler = new SpeechWindowAssembler('system', options.windowOptions)
+    this.questionControls = new QuestionControls(options.controlsOptions)
   }
 
   public async ingestChunk(chunk: AudioChunk): Promise<void> {
@@ -83,6 +87,7 @@ export class TranscriptionPipeline {
   public stop(): void {
     this.micAssembler.reset()
     this.systemAssembler.reset()
+    this.questionControls.cancel()
 
     if (this.currentAbortController) {
       this.currentAbortController.abort()
@@ -95,6 +100,7 @@ export class TranscriptionPipeline {
 
   public dispose(): void {
     this.stop()
+    this.questionControls.reset()
     this.stateSubscribers.clear()
     this.questionSubscribers.clear()
     this.segments = []
@@ -141,7 +147,13 @@ export class TranscriptionPipeline {
 
           const questionCandidate = evaluateSegmentForQuestion(segment)
           if (questionCandidate) {
-            this.addQuestion(questionCandidate)
+            this.questionControls.submitCandidate(
+              questionCandidate,
+              (readyCandidate) => {
+                this.addQuestion(readyCandidate)
+                this.notifyStateChanged()
+              }
+            )
           }
         }
       }
