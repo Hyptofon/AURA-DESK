@@ -12,8 +12,10 @@ import {
   IPC_CHANNELS,
   DisplayConfigurationSchema,
   type IpcResponse,
-  type DisplayConfiguration
+  type DisplayConfiguration,
+  type SessionStatus
 } from '../../src/shared/contracts/ipc'
+import type { ScreenCapturePort } from '../../src/shared/contracts/capture'
 import { DisplayManager, forwardDisplayEvents } from '../../src/main/displays/display-manager'
 
 class MockIpcMain implements IpcMainLike {
