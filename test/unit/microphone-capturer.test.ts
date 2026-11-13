@@ -93,12 +93,49 @@ describe('MicrophoneCapturer Supervisor', () => {
     expect(statusUpdates).toEqual(['starting', 'active'])
   })
 
-  it('rejects start if already active', async () => {
+  it('rejects start if already active or starting', async () => {
     const backend = new FakeMicrophoneBackend()
     const capturer = new MicrophoneCapturer(backend)
 
     await capturer.start()
-    await expect(capturer.start()).rejects.toThrow(/already active/)
+    await expect(capturer.start()).rejects.toThrow(/already starting or active/)
+  })
+
+  it('rejects concurrent start if already starting', async () => {
+    const backend = new FakeMicrophoneBackend()
+    backend.startDelayMs = 50
+    const capturer = new MicrophoneCapturer(backend)
+
+    const firstStart = capturer.start()
+    await expect(capturer.start()).rejects.toThrow(/already starting or active/)
+    await firstStart
+    expect(capturer.getStatus()).toBe('active')
+  })
+
+  it('safely processes chunks with odd byteOffset without throwing RangeError', async () => {
+    const backend = new FakeMicrophoneBackend()
+    const capturer = new MicrophoneCapturer(backend)
+    await capturer.start()
+
+    // Create an unaligned chunk with byteOffset = 1
+    const rawBuffer = new ArrayBuffer(641)
+    const oddView = new Uint8Array(rawBuffer, 1, 640)
+    oddView.fill(10)
+
+    const unalignedChunk: AudioChunk = {
+      id: 'chunk-odd',
+      source: 'mic',
+      timestamp: Date.now(),
+      durationMs: 20,
+      sampleRate: 16000,
+      channels: 1,
+      data: oddView,
+      rms: 0,
+      isSpeech: false
+    }
+
+    expect(() => backend.emitChunk(unalignedChunk)).not.toThrow()
+    expect(capturer.getBufferStats().chunkCount).toBe(1)
   })
 
   it('fails closed and enters error state when permission is denied', async () => {
