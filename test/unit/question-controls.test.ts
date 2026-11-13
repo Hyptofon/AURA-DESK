@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import {
-  QuestionControls,
-  type QuestionControlsOptions
-} from '@/main/transcription/question-controls'
+import { QuestionControls } from '@/main/transcription/question-controls'
 import type { QuestionCandidate } from '@/shared/contracts/questions'
 
 describe('QuestionControls — Debounce, Confidence, Cooldown, and Cancellation', () => {
