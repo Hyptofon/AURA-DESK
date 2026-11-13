@@ -11,7 +11,11 @@ export const IPC_CHANNELS = {
   SESSION_STOP: 'aura:session-stop',
   SESSION_STATUS_CHANGED: 'aura:session-status-changed',
   DISPLAYS_GET_ALL: 'aura:displays-get-all',
-  DISPLAYS_CHANGED: 'aura:displays-changed'
+  DISPLAYS_CHANGED: 'aura:displays-changed',
+  AUDIO_GET_STATE: 'aura:audio-get-state',
+  AUDIO_SET_CONFIG: 'aura:audio-set-config',
+  AUDIO_STATE_CHANGED: 'aura:audio-state-changed',
+  AUDIO_GET_DEVICES: 'aura:audio-get-devices'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
