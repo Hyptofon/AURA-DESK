@@ -1009,6 +1009,55 @@ describe('Main Process IPC Handlers', () => {
       })
       expect(mockPipeline.resume).toHaveBeenCalledTimes(1)
     })
+
+    it('subscribes to transcriptionPipeline onStateChanged and forwards events to webContents', () => {
+      let subscriberCallback: ((state: unknown) => void) | null = null
+      const mockPipeline = {
+        ingestChunk: vi.fn(),
+        stop: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        getState: vi.fn().mockReturnValue({}),
+        onStateChanged: vi.fn().mockImplementation((cb) => {
+          subscriberCallback = cb
+          return () => {}
+        })
+      }
+
+      const sendSpy = vi.fn()
+      const webContentsWithSend = {
+        ...defaultWebContents,
+        send: sendSpy,
+        isDestroyed: () => false
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(
+        customIpc,
+        { trustedWebContents: webContentsWithSend },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockPipeline as never
+      )
+
+      expect(mockPipeline.onStateChanged).toHaveBeenCalledTimes(1)
+      expect(subscriberCallback).not.toBeNull()
+
+      const sampleState = {
+        latestSegment: { id: 'seg-1', text: 'Hello', source: 'mic' },
+        latestQuestion: null,
+        segmentCount: 1,
+        questionCount: 0,
+        isTranscribing: false
+      }
+      subscriberCallback!(sampleState)
+
+      expect(sendSpy).toHaveBeenCalledWith(IPC_CHANNELS.TRANSCRIPTION_STATE_CHANGED, sampleState)
+    })
   })
 
   it('unregisters handlers cleanly on teardown', () => {
