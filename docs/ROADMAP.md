@@ -19,11 +19,11 @@
 
 ## Milestone M2 — Audio spike (critical)
 
-- [ ] **P2.1** Mic capture and VAD with actual microphone device.
-- [ ] **P2.2** Windows system loopback capture while listening through headphones.
-- [ ] **P2.3** Independent mic/system audio toggles, source timestamps.
-- [ ] **P2.4** `Pause`/`Stop` teardown tests, privacy indication.
-- [ ] **GATE-2** Choose Electron audio or .NET helper after actual Windows test; document result in ADR/PROGRESS separate commit.
+- [x] **P2.1** Mic capture and VAD with actual microphone device.
+- [x] **P2.2** Windows system loopback capture while listening through headphones.
+- [x] **P2.3** Independent mic/system audio toggles, source timestamps.
+- [x] **P2.4** `Pause`/`Stop` teardown tests, privacy indication.
+- [ ] **GATE-2** Choose Electron audio or .NET helper after actual Windows test; document result in ADR/PROGRESS separate commit (ADR-006 resolved; consolidated checklist prepared in PROGRESS.md).
 
 ## Milestone M3 — Transcription and question detection
 
