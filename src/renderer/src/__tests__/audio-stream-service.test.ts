@@ -211,5 +211,52 @@ describe('AudioStreamService & PCM Conversion', () => {
       expect(service.isMicrophoneStreaming()).toBe(false)
       expect(service.isSystemLoopbackStreaming()).toBe(false)
     })
+
+    it('starts microphone and system loopback concurrently without cancelling each other', async () => {
+      const service = new AudioStreamService()
+
+      // Start both concurrently (simulating user checking both and starting session)
+      const [micResult, sysResult] = await Promise.allSettled([
+        service.startMicrophone(),
+        service.startSystemLoopback()
+      ])
+
+      expect(micResult.status).toBe('fulfilled')
+      expect(sysResult.status).toBe('fulfilled')
+      expect(service.isMicrophoneStreaming()).toBe(true)
+      expect(service.isSystemLoopbackStreaming()).toBe(true)
+
+      await service.stopAll()
+      expect(service.isMicrophoneStreaming()).toBe(false)
+      expect(service.isSystemLoopbackStreaming()).toBe(false)
+    })
+
+    it('isolated lifecycle: stopping or restarting one audio source does not affect the active state of the other', async () => {
+      const service = new AudioStreamService()
+      await service.startMicrophone()
+      await service.startSystemLoopback()
+
+      expect(service.isMicrophoneStreaming()).toBe(true)
+      expect(service.isSystemLoopbackStreaming()).toBe(true)
+
+      // Stop mic: system loopback must remain streaming and active
+      await service.stopMicrophone()
+      expect(service.isMicrophoneStreaming()).toBe(false)
+      expect(service.isSystemLoopbackStreaming()).toBe(true)
+
+      // Restart mic: both should now be active
+      await service.startMicrophone()
+      expect(service.isMicrophoneStreaming()).toBe(true)
+      expect(service.isSystemLoopbackStreaming()).toBe(true)
+
+      // Stop system loopback: mic must remain streaming and active
+      await service.stopSystemLoopback()
+      expect(service.isMicrophoneStreaming()).toBe(true)
+      expect(service.isSystemLoopbackStreaming()).toBe(false)
+
+      await service.stopAll()
+      expect(service.isMicrophoneStreaming()).toBe(false)
+      expect(service.isSystemLoopbackStreaming()).toBe(false)
+    })
   })
 })
