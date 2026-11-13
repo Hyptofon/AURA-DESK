@@ -7,7 +7,12 @@ import type { AudioChunk } from '../../src/shared/contracts/audio'
 
 describe('ElectronLoopbackBackend', () => {
   it('registers displayMediaRequestHandler with audio: loopback on start', async () => {
-    let registeredHandler: ((request: unknown, callback: (res: unknown) => void) => void) | null = null
+    let registeredHandler:
+      | ((
+          request: { frame?: unknown; audioRequested?: boolean },
+          callback: (response: { audio?: 'loopback' }) => void
+        ) => void)
+      | null = null
 
     const mockSession: SessionWithDisplayMediaHandler = {
       setDisplayMediaRequestHandler: vi.fn().mockImplementation((handler) => {
@@ -25,7 +30,8 @@ describe('ElectronLoopbackBackend', () => {
 
     // Test handler authorization
     const callbackSpy = vi.fn()
-    registeredHandler?.({}, callbackSpy)
+    expect(registeredHandler).not.toBeNull()
+    registeredHandler!({}, callbackSpy)
     expect(callbackSpy).toHaveBeenCalledWith({ audio: 'loopback' })
   })
 
@@ -37,7 +43,12 @@ describe('ElectronLoopbackBackend', () => {
   })
 
   it('installs fail-closed deny handler on stop and unregisters listeners', async () => {
-    let currentHandler: ((request: unknown, callback: (res: unknown) => void) => void) | null = null
+    let currentHandler:
+      | ((
+          request: { frame?: unknown; audioRequested?: boolean },
+          callback: (response: { audio?: 'loopback' }) => void
+        ) => void)
+      | null = null
 
     const mockSession: SessionWithDisplayMediaHandler = {
       setDisplayMediaRequestHandler: vi.fn().mockImplementation((handler) => {
@@ -52,7 +63,8 @@ describe('ElectronLoopbackBackend', () => {
     expect(backend.isActive()).toBe(false)
     // On stop, handler must deny any subsequent request
     const callbackSpy = vi.fn()
-    currentHandler?.({}, callbackSpy)
+    expect(currentHandler).not.toBeNull()
+    currentHandler!({}, callbackSpy)
     expect(callbackSpy).toHaveBeenCalledWith({})
   })
 
