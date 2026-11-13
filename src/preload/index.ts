@@ -28,6 +28,14 @@ export interface AuraApi {
   setAudioConfig?(config: AudioConfig): Promise<AudioSessionState>
   getAudioDevices?(): Promise<AudioDevice[]>
   onAudioStateChanged?(callback: (state: AudioSessionState) => void): () => void
+  submitAudioChunk?(chunk: {
+    source: 'mic' | 'system'
+    data: Uint8Array
+    timestamp: number
+    durationMs: number
+    sampleRate?: number
+    channels?: number
+  }): Promise<{ accepted: boolean }>
 }
 
 /**
@@ -92,7 +100,16 @@ export const auraApi: AuraApi = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.AUDIO_STATE_CHANGED, listener)
     }
-  }
+  },
+  submitAudioChunk: (chunk: {
+    source: 'mic' | 'system'
+    data: Uint8Array
+    timestamp: number
+    durationMs: number
+    sampleRate?: number
+    channels?: number
+  }) =>
+    invokeChannel<{ accepted: boolean }>(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, chunk)
 }
 
 /**
