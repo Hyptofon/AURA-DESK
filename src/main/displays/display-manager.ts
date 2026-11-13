@@ -5,8 +5,8 @@ import {
   type DisplayInfo,
   type DisplayConfiguration,
   type CaptureSelection
-} from '../../shared/contracts/channels'
-import { DisplayConfigurationSchema } from '../../shared/contracts/ipc'
+} from '@/shared/contracts/channels'
+import { DisplayConfigurationSchema } from '@/shared/contracts/ipc'
 import { getCurrentCaptureSelection } from '../ipc/register-handlers'
 
 export interface ElectronDisplayLike {
