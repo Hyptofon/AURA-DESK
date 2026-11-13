@@ -121,7 +121,7 @@ function createWindow(): void {
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     // Fail-closed: only authorized main window can request loopback audio
     if (!mainWindow || !request.frame || request.frame.processId !== mainWindow.webContents.mainFrame.processId) {
-      callback(null as unknown as { video: unknown; audio: unknown })
+      callback({})
       return
     }
 
@@ -141,7 +141,7 @@ function createWindow(): void {
       const selectedSource = windowSource ?? sources[0]
 
       if (!selectedSource) {
-        callback(null as unknown as { video: unknown; audio: unknown })
+        callback({})
         return
       }
 
@@ -151,7 +151,7 @@ function createWindow(): void {
       })
     } catch (err) {
       console.error('Failed to resolve display media source for loopback audio:', err)
-      callback(null as unknown as { video: unknown; audio: unknown })
+      callback({})
     }
   })
 
@@ -162,7 +162,7 @@ function createWindow(): void {
     unsubscribeDisplays()
     unregisterIpcHandlers()
     session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-      callback(null as unknown as { video: unknown; audio: unknown })
+      callback({})
     })
     if (audioSupervisor) {
       void audioSupervisor.stopAll()
