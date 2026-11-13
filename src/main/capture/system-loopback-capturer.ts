@@ -2,7 +2,7 @@ import type {
   AudioCaptureStatus,
   AudioChunk,
   AudioBufferStats
-} from '../../shared/contracts/audio'
+} from '@/shared/contracts/audio'
 import { AudioRingBuffer } from './audio-ring-buffer'
 
 export interface SystemLoopbackBackend {
