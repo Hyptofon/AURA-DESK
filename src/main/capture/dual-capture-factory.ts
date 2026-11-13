@@ -1,6 +1,6 @@
 import { SingleDisplayCapturer, type DesktopCapturerLike } from './single-display-capturer'
 import type { DisplayManager } from '../displays/display-manager'
-import type { FrameCaptureBackend } from '../../shared/contracts/capture'
+import type { FrameCaptureBackend } from '@/shared/contracts/capture'
 import { createDualCaptureBackends } from './dual-capture-backends'
 import { DualDisplayCapturer } from './dual-display-capturer'
 
