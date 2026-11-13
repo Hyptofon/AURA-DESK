@@ -9,6 +9,7 @@ import {
   type IpcResponse
 } from '@/shared/contracts/channels'
 import type { AudioConfig, AudioSessionState, AudioDevice } from '@/shared/contracts/audio'
+import type { TranscriptionSessionState } from '@/shared/contracts/questions'
 
 export interface AuraApi {
   platform: string
@@ -39,6 +40,10 @@ export interface AuraApi {
     sampleRate?: number
     channels?: number
   }): Promise<{ accepted: boolean }>
+  getTranscriptionState?(): Promise<TranscriptionSessionState>
+  onTranscriptionStateChanged?(
+    callback: (state: TranscriptionSessionState) => void
+  ): () => void
 }
 
 /**
@@ -127,7 +132,24 @@ export const auraApi: AuraApi = {
     sampleRate?: number
     channels?: number
   }) =>
-    invokeChannel<{ accepted: boolean }>(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, chunk)
+    invokeChannel<{ accepted: boolean }>(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, chunk),
+  getTranscriptionState: () =>
+    invokeChannel<TranscriptionSessionState>(IPC_CHANNELS.TRANSCRIPTION_GET_STATE),
+  onTranscriptionStateChanged: (
+    callback: (state: TranscriptionSessionState) => void
+  ): (() => void) => {
+    const listener = (_event: unknown, data: unknown) => {
+      try {
+        callback(data as TranscriptionSessionState)
+      } catch (err) {
+        console.error('Error in onTranscriptionStateChanged callback:', err)
+      }
+    }
+    ipcRenderer.on(IPC_CHANNELS.TRANSCRIPTION_STATE_CHANGED, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.TRANSCRIPTION_STATE_CHANGED, listener)
+    }
+  }
 }
 
 /**
