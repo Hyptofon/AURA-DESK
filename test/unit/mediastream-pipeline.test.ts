@@ -34,9 +34,9 @@ class MockElectronBrowserWindow implements BrowserWindowLike {
   public webContents: WebContentsLike
   public options: MockBrowserWindowOptions
 
-  constructor(options: MockBrowserWindowOptions) {
-    this.options = options
-    mockBrowserWindowCalls.push(options)
+  constructor(options?: unknown) {
+    this.options = (options ?? {}) as MockBrowserWindowOptions
+    mockBrowserWindowCalls.push(this.options)
     this.webContents = {
       mainFrame: { processId: 10, routingId: 10 },
       executeJavaScript: vi.fn().mockResolvedValue({ ok: true, trackId: 'test-track' }),
