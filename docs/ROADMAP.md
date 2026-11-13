@@ -23,7 +23,7 @@
 - [x] **P2.2** Windows system loopback capture while listening through headphones.
 - [x] **P2.3** Independent mic/system audio toggles, source timestamps.
 - [x] **P2.4** `Pause`/`Stop` teardown tests, privacy indication.
-- [ ] **GATE-2** Choose Electron audio or .NET helper after actual Windows test; document result in ADR/PROGRESS separate commit (ADR-006 resolved; consolidated checklist prepared in PROGRESS.md).
+- [x] **GATE-2** Choose Electron audio or .NET helper after actual Windows test; document result in ADR/PROGRESS separate commit (COMPLETED & VERIFIED: physical Windows testing confirmed live microphone with dynamic VAD isSpeech response, concurrent MIC+SYSTEM capture, pause buffer freeze with unchanged timestamps, stop zero-retention [0 chunks, 0 bytes], and content-dependent headphone loopback [playing avg RMS 0.067731 vs paused avg RMS 0.000007]; Electron/Chromium chosen as verified audio architecture; ADR-006 finalized).
 
 ## Milestone M3 — Transcription and question detection
 
