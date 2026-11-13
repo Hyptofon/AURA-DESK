@@ -103,14 +103,14 @@ function createWindow(): void {
 
   // Configure permission check and request handlers for media access in authorized main window
   session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
-    if (permission === 'media' && mainWindow && webContents.id === mainWindow.webContents.id) {
+    if (permission === 'media' && mainWindow && webContents && webContents.id === mainWindow.webContents.id) {
       return true
     }
     return false
   })
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'media' && mainWindow && webContents.id === mainWindow.webContents.id) {
+    if (permission === 'media' && mainWindow && webContents && webContents.id === mainWindow.webContents.id) {
       callback(true)
       return
     }
