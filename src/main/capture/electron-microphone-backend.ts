@@ -1,4 +1,4 @@
-import type { AudioChunk, AudioDevice } from '../../shared/contracts/audio'
+import type { AudioChunk, AudioDevice } from '@/shared/contracts/audio'
 import type { MicrophoneBackend } from './microphone-capturer'
 
 export interface ElectronMicrophoneBackendOptions {
