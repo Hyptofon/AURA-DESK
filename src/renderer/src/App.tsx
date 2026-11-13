@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import type { AudioSessionState, AudioConfig } from '@/shared/contracts/audio'
 import type { SessionStatus } from '@/shared/contracts/channels'
+import { defaultAudioStreamService } from './services/audio-stream-service'
 
 export function App(): React.JSX.Element {
   const platform = typeof window !== 'undefined' && window.api ? window.api.platform : 'windows'
@@ -9,12 +10,23 @@ export function App(): React.JSX.Element {
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>('idle')
   const [audioState, setAudioState] = useState<AudioSessionState | null>(null)
   const [audioConfig, setAudioConfig] = useState<AudioConfig>({ mic: false, system: false })
-  const [canStart] = useState<boolean>(false) // Enabled after source selection
+  const [canStart, setCanStart] = useState<boolean>(true) // Enabled for active session start
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.api) return
 
     let mounted = true
+
+    // Check display configuration availability to set canStart
+    if (window.api.getDisplays) {
+      window.api.getDisplays().then((config) => {
+        if (mounted && config?.displays) {
+          setCanStart(config.displays.length > 0)
+        }
+      }).catch(() => {
+        if (mounted) setCanStart(true)
+      })
+    }
 
     // Load initial session state
     if (window.api.getSessionState) {
@@ -63,42 +75,101 @@ export function App(): React.JSX.Element {
     const prevConfig = audioConfig
     const nextConfig: AudioConfig = { ...audioConfig, mic: enabled }
     setAudioConfig(nextConfig)
-    if (window.api?.setAudioConfig) {
-      try {
-        const state = await window.api.setAudioConfig(nextConfig)
-        setAudioState(state)
-      } catch (err) {
-        setAudioConfig(prevConfig)
-        console.error('Failed to update mic config:', err)
+
+    // Only activate backend and hardware stream if session is actively running
+    if (sessionStatus === 'active') {
+      if (enabled) {
+        if (window.api?.setAudioConfig) {
+          try {
+            const state = await window.api.setAudioConfig(nextConfig)
+            setAudioState(state)
+            await defaultAudioStreamService.startMicrophone(nextConfig.micDeviceId)
+          } catch (err) {
+            setAudioConfig(prevConfig)
+            console.error('Failed to enable mic stream:', err)
+          }
+        }
+      } else {
+        await defaultAudioStreamService.stopMicrophone()
+        if (window.api?.setAudioConfig) {
+          try {
+            const state = await window.api.setAudioConfig(nextConfig)
+            setAudioState(state)
+          } catch (err) {
+            console.error('Failed to disable mic config:', err)
+          }
+        }
       }
     }
-  }, [audioConfig])
+  }, [audioConfig, sessionStatus])
 
   const handleToggleSystem = useCallback(async (enabled: boolean) => {
     const prevConfig = audioConfig
     const nextConfig: AudioConfig = { ...audioConfig, system: enabled }
     setAudioConfig(nextConfig)
-    if (window.api?.setAudioConfig) {
-      try {
-        const state = await window.api.setAudioConfig(nextConfig)
-        setAudioState(state)
-      } catch (err) {
-        setAudioConfig(prevConfig)
-        console.error('Failed to update system audio config:', err)
+
+    // Only activate backend and hardware stream if session is actively running
+    if (sessionStatus === 'active') {
+      if (enabled) {
+        if (window.api?.setAudioConfig) {
+          try {
+            const state = await window.api.setAudioConfig(nextConfig)
+            setAudioState(state)
+            await defaultAudioStreamService.startSystemLoopback()
+          } catch (err) {
+            setAudioConfig(prevConfig)
+            console.error('Failed to enable system audio stream:', err)
+          }
+        }
+      } else {
+        await defaultAudioStreamService.stopSystemLoopback()
+        if (window.api?.setAudioConfig) {
+          try {
+            const state = await window.api.setAudioConfig(nextConfig)
+            setAudioState(state)
+          } catch (err) {
+            console.error('Failed to disable system audio config:', err)
+          }
+        }
       }
     }
-  }, [audioConfig])
+  }, [audioConfig, sessionStatus])
 
   const handleStartSession = useCallback(async () => {
     if (window.api?.startSession) {
       try {
         const res = await window.api.startSession()
-        if (res.status) setSessionStatus(res.status)
+        if (res.status) {
+          setSessionStatus(res.status)
+          if (res.status === 'active') {
+            // Apply desired audio configuration and start live hardware streams upon explicit session start
+            if (audioConfig.mic || audioConfig.system) {
+              if (window.api?.setAudioConfig) {
+                try {
+                  const state = await window.api.setAudioConfig(audioConfig)
+                  setAudioState(state)
+                } catch (err) {
+                  console.error('Failed to apply audio config on session start:', err)
+                }
+              }
+              if (audioConfig.mic) {
+                await defaultAudioStreamService.startMicrophone(audioConfig.micDeviceId).catch((err) => {
+                  console.error('Failed to start microphone stream:', err)
+                })
+              }
+              if (audioConfig.system) {
+                await defaultAudioStreamService.startSystemLoopback().catch((err) => {
+                  console.error('Failed to start system loopback stream:', err)
+                })
+              }
+            }
+          }
+        }
       } catch (err) {
         console.error('Failed to start session:', err)
       }
     }
-  }, [])
+  }, [audioConfig])
 
   const handlePauseResume = useCallback(async () => {
     const isCurrentlyPaused =
@@ -118,6 +189,11 @@ export function App(): React.JSX.Element {
   }, [sessionStatus, audioState, audioConfig])
 
   const handleStopSession = useCallback(async () => {
+    // Teardown live renderer audio streams immediately
+    await defaultAudioStreamService.stopAll().catch((err) => {
+      console.error('Failed to stop renderer audio streams:', err)
+    })
+
     if (window.api?.stopSession) {
       try {
         const res = await window.api.stopSession()
@@ -130,9 +206,8 @@ export function App(): React.JSX.Element {
       try {
         const idleState = await window.api.setAudioConfig({ mic: false, system: false })
         setAudioState(idleState)
-        setAudioConfig({ mic: false, system: false })
       } catch (err) {
-        console.error('Failed to stop audio streams:', err)
+        console.error('Failed to stop audio config:', err)
       }
     }
     setSessionStatus('idle')

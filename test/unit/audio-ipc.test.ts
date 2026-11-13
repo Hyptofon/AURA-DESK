@@ -329,4 +329,85 @@ describe('P2.3 Audio IPC Registration and Validation', () => {
     // Audio supervisor stopAll must still have been called to guarantee zero retention
     expect(mockSupervisor.stopAll).toHaveBeenCalledOnce()
   })
+
+  it('routes AUDIO_SUBMIT_CHUNK for mic to active micBackend', async () => {
+    const mockMicBackend = {
+      emitChunk: vi.fn()
+    }
+
+    registerIpcHandlers(
+      ipc,
+      { validate: () => ({ valid: true }) },
+      undefined,
+      undefined,
+      undefined,
+      mockSupervisor as unknown as IntegratedAudioSupervisor,
+      mockMicBackend as never
+    )
+
+    const payload = {
+      source: 'mic',
+      data: new Uint8Array([1, 2, 3, 4]),
+      timestamp: 1700000000,
+      durationMs: 64
+    }
+
+    const res = await ipc.invoke(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, payload)
+    expect(res.ok).toBe(true)
+    expect(mockMicBackend.emitChunk).toHaveBeenCalledOnce()
+    const emitted = mockMicBackend.emitChunk.mock.calls[0][0]
+    expect(emitted.source).toBe('mic')
+    expect(emitted.durationMs).toBe(64)
+    expect(Buffer.isBuffer(emitted.data)).toBe(true)
+    expect(emitted.data).toEqual(Buffer.from([1, 2, 3, 4]))
+  })
+
+  it('routes AUDIO_SUBMIT_CHUNK for system to active loopbackBackend', async () => {
+    const mockLoopbackBackend = {
+      emitChunk: vi.fn()
+    }
+
+    registerIpcHandlers(
+      ipc,
+      { validate: () => ({ valid: true }) },
+      undefined,
+      undefined,
+      undefined,
+      mockSupervisor as unknown as IntegratedAudioSupervisor,
+      undefined,
+      mockLoopbackBackend as never
+    )
+
+    const payload = {
+      source: 'system',
+      data: new Uint8Array([5, 6, 7, 8]),
+      timestamp: 1700000005,
+      durationMs: 85
+    }
+
+    const res = await ipc.invoke(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, payload)
+    expect(res.ok).toBe(true)
+    expect(mockLoopbackBackend.emitChunk).toHaveBeenCalledOnce()
+    const emitted = mockLoopbackBackend.emitChunk.mock.calls[0][0]
+    expect(emitted.source).toBe('system')
+    expect(emitted.durationMs).toBe(85)
+    expect(Buffer.isBuffer(emitted.data)).toBe(true)
+  })
+
+  it('rejects invalid payload on AUDIO_SUBMIT_CHUNK fail-closed', async () => {
+    registerIpcHandlers(
+      ipc,
+      { validate: () => ({ valid: true }) },
+      undefined,
+      undefined,
+      undefined,
+      mockSupervisor as unknown as IntegratedAudioSupervisor
+    )
+
+    const res = await ipc.invoke(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, { source: 'invalid-source' })
+    expect(res.ok).toBe(false)
+    if (!res.ok) {
+      expect(res.error.code).toBe('INVALID_AUDIO_CHUNK')
+    }
+  })
 })

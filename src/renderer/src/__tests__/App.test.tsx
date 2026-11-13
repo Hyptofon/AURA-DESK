@@ -3,6 +3,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { App } from '../App'
 import type { AudioSessionState } from '@/shared/contracts/audio'
 
+vi.mock('../services/audio-stream-service', () => ({
+  defaultAudioStreamService: {
+    startMicrophone: vi.fn(async () => {}),
+    stopMicrophone: vi.fn(async () => {}),
+    startSystemLoopback: vi.fn(async () => {}),
+    stopSystemLoopback: vi.fn(async () => {}),
+    stopAll: vi.fn(async () => {})
+  }
+}))
+
 describe('<App /> Component', () => {
   let audioStateListener: ((state: AudioSessionState) => void) | null = null
 
@@ -19,6 +29,24 @@ describe('<App /> Component', () => {
       }),
       getSessionState: async () => ({ status: 'idle' }),
       setCaptureSelection: async (selection) => ({ success: true, selection }),
+      startSession: vi.fn(async () => ({ success: true, status: 'active' as const })),
+      stopSession: vi.fn(async () => ({ success: true, status: 'idle' as const })),
+      getDisplays: vi.fn(async () => ({
+        displays: [
+          {
+            id: 'disp-1',
+            label: 'Display 1',
+            isPrimary: true,
+            bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+            workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1,
+            rotation: 0
+          }
+        ],
+        primaryId: 'disp-1',
+        count: 1,
+        isMultiDisplay: false
+      })),
       getAudioState: async () => ({
         mic: {
           enabled: false,
@@ -52,8 +80,7 @@ describe('<App /> Component', () => {
         return () => {
           audioStateListener = null
         }
-      }),
-      stopSession: vi.fn(async () => ({ success: true, status: 'idle' as const }))
+      })
     }
   })
 
@@ -87,7 +114,7 @@ describe('<App /> Component', () => {
     expect(screen.queryByTestId('system-paused-badge')).not.toBeInTheDocument()
   })
 
-  it('renders session action buttons in disabled state initially', async () => {
+  it('renders session action buttons correctly initially (start enabled, pause and stop disabled)', async () => {
     await act(async () => {
       render(<App />)
     })
@@ -96,7 +123,7 @@ describe('<App /> Component', () => {
     const pauseBtn = screen.getByRole('button', { name: /Пауза/i })
     const stopBtn = screen.getByRole('button', { name: /Зупинити/i })
 
-    expect(startBtn).toBeDisabled()
+    expect(startBtn).toBeEnabled()
     expect(pauseBtn).toBeDisabled()
     expect(stopBtn).toBeDisabled()
   })
@@ -184,7 +211,65 @@ describe('<App /> Component', () => {
     expect(screen.queryByTestId('mic-recording-badge')).not.toBeInTheDocument()
   })
 
-  it('toggles microphone capture via checkbox', async () => {
+  it('toggles microphone capture intent while idle and applies on session start', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    const micCheckbox = screen.getByTestId('toggle-mic')
+    expect(micCheckbox).not.toBeChecked()
+
+    // 1. Toggling in idle only sets UI intent without premature backend call
+    await act(async () => {
+      fireEvent.click(micCheckbox)
+    })
+
+    expect(micCheckbox).toBeChecked()
+    expect(window.api.setAudioConfig).not.toHaveBeenCalled()
+
+    // 2. Starting session applies the audio config
+    const startBtn = screen.getByRole('button', { name: /Почати сесію/i })
+    await act(async () => {
+      fireEvent.click(startBtn)
+    })
+
+    expect(window.api.startSession).toHaveBeenCalled()
+    expect(window.api.setAudioConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ mic: true, system: false })
+    )
+  })
+
+  it('toggles system audio capture intent while idle and applies on session start', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    const systemCheckbox = screen.getByTestId('toggle-system-audio')
+    expect(systemCheckbox).not.toBeChecked()
+
+    // 1. Toggling in idle only sets UI intent without premature backend call
+    await act(async () => {
+      fireEvent.click(systemCheckbox)
+    })
+
+    expect(systemCheckbox).toBeChecked()
+    expect(window.api.setAudioConfig).not.toHaveBeenCalled()
+
+    // 2. Starting session applies the audio config
+    const startBtn = screen.getByRole('button', { name: /Почати сесію/i })
+    await act(async () => {
+      fireEvent.click(startBtn)
+    })
+
+    expect(window.api.startSession).toHaveBeenCalled()
+    expect(window.api.setAudioConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ mic: false, system: true })
+    )
+  })
+
+  it('dynamically toggles mic capture during active session', async () => {
+    window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))
+
     await act(async () => {
       render(<App />)
     })
@@ -199,9 +284,12 @@ describe('<App /> Component', () => {
     expect(window.api.setAudioConfig).toHaveBeenCalledWith(
       expect.objectContaining({ mic: true, system: false })
     )
+    expect(micCheckbox).toBeChecked()
   })
 
-  it('toggles system audio capture via checkbox', async () => {
+  it('dynamically toggles system audio capture during active session', async () => {
+    window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))
+
     await act(async () => {
       render(<App />)
     })
@@ -216,6 +304,7 @@ describe('<App /> Component', () => {
     expect(window.api.setAudioConfig).toHaveBeenCalledWith(
       expect.objectContaining({ mic: false, system: true })
     )
+    expect(systemCheckbox).toBeChecked()
   })
 
   it('detects system-only paused state and sends resume when clicked', async () => {
@@ -259,8 +348,9 @@ describe('<App /> Component', () => {
     )
   })
 
-  it('rolls back mic checkbox state if setAudioConfig throws', async () => {
+  it('rolls back mic checkbox state if setAudioConfig throws during active session', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))
     window.api.setAudioConfig = vi.fn().mockRejectedValueOnce(new Error('Audio permission denied'))
 
     await act(async () => {
@@ -279,8 +369,9 @@ describe('<App /> Component', () => {
     consoleSpy.mockRestore()
   })
 
-  it('rolls back system audio checkbox state if setAudioConfig throws', async () => {
+  it('rolls back system audio checkbox state if setAudioConfig throws during active session', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))
     window.api.setAudioConfig = vi.fn().mockRejectedValueOnce(new Error('System audio loopback error'))
 
     await act(async () => {

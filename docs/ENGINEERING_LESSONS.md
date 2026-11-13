@@ -190,3 +190,17 @@ This document is the persistent repository of hard-won engineering lessons from 
 - **Generalizable Engineering Rule:** Always include `test/**/*` in TypeScript compilation scopes (`tsconfig.node.json` or a dedicated test tsconfig) to ensure that `npm run typecheck` performs static type checking over test suites, mock contracts, and assertion signatures alongside production source code.
 - **Preventive Test / Check:** `tsconfig.node.json` explicitly including `"test/**/*"`, and `npm run typecheck` covering both test suites and application code.
 - **Relevant Skill / Rule:** `.agents/skills/testing-strategy/SKILL.md`, `.agents/rules/testing-quality.md`.
+
+---
+
+## Lesson 22: Real Audio Stream Ingestion & User Session Consent Synchronization
+- **Symptom:** In Milestone M2, `ElectronMicrophoneBackend` and `ElectronLoopbackBackend` were stubs setting `isStarted = true` without opening actual Chromium `MediaStream`s or generating real PCM audio samples. Furthermore, in `App.tsx`, `canStart` was hardcoded to `false`, permanently disabling the «Почати сесію» button, while clicking audio checkboxes in `idle` state immediately triggered backend state changes and recording badges before any session was initiated, violating the user consent privacy invariant.
+- **Root Cause & Detection Gap:** Relying on mock-friendly placeholder backends without completing the physical Web Audio ingestion pipeline, and designing UI toggles that directly coupled configuration checkboxes to hardware activation without gating hardware access behind explicit session initiation.
+- **Generalizable Engineering Rule:**
+  1. Audio capture hardware must never be activated while in an `idle` unstarted session state. Checkbox toggles in `idle` mode must solely configure user intent (`audioConfig`). Real audio streams (`getUserMedia` / `getDisplayMedia`) and backend activation (`setAudioConfig`) must only start upon explicit user consent via session start («Почати сесію») or dynamic toggle during an active running session.
+  2. Production audio streaming must ingest genuine PCM audio samples (e.g. converting Float32 Web Audio buffers to Int16 PCM) and stream them over authenticated binary IPC channels (`aura:audio-submit-chunk`) to feed real RMS/VAD calculations and audio ring buffers.
+- **Preventive Test / Check:**
+  - `src/renderer/src/__tests__/audio-stream-service.test.ts` verifying PCM conversion, clipping, stream start/stop, and track teardown.
+  - `src/renderer/src/__tests__/App.test.tsx` verifying consent-driven session start, idle toggle decoupling, and dynamic active session toggles/rollbacks.
+  - `test/unit/audio-ipc.test.ts` verifying typed schema validation and IPC routing for `aura:audio-submit-chunk`.
+- **Relevant Skill / Rule:** `.agents/skills/audio-transcription/SKILL.md`, `.agents/rules/safety-privacy.md`, `.agents/rules/architecture.md`.

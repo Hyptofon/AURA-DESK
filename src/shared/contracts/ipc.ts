@@ -156,3 +156,19 @@ export const AudioConfigSchema = z
     paused: z.boolean().optional()
   })
   .strict()
+
+/**
+ * Audio submit chunk schema for streaming raw PCM audio from renderer/capture surfaces to main.
+ */
+export const AudioSubmitChunkSchema = z
+  .object({
+    source: z.enum(['mic', 'system']),
+    data: z.instanceof(Uint8Array),
+    timestamp: z.number().positive(),
+    durationMs: z.number().nonnegative(),
+    sampleRate: z.number().positive().optional(),
+    channels: z.number().int().positive().optional()
+  })
+  .strict()
+
+export type AudioSubmitChunk = z.infer<typeof AudioSubmitChunkSchema>

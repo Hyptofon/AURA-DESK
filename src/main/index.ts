@@ -96,8 +96,31 @@ function createWindow(): void {
     displayManager,
     singleDisplayCapturer,
     dualDisplayCapturer,
-    audioSupervisor
+    audioSupervisor,
+    micBackend,
+    loopbackBackend
   )
+
+  // Configure permission check and request handlers for media access in authorized main window
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+    if (permission === 'media' && mainWindow && webContents && webContents.id === mainWindow.webContents.id) {
+      return true
+    }
+    return false
+  })
+
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    if (permission === 'media' && mainWindow && webContents && webContents.id === mainWindow.webContents.id) {
+      callback(true)
+      return
+    }
+    callback(false)
+  })
+
+  // Authorize system loopback audio requests from authorized main window
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    callback({ audio: 'loopback' })
+  })
 
   // Forward validated display hotplug and metrics events to authorized window
   const unsubscribeDisplays = forwardDisplayEvents(mainWindow.webContents, displayManager)
