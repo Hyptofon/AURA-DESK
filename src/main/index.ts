@@ -5,10 +5,13 @@ import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handl
 import { isAllowedNavigation } from './security/navigation-guard'
 import { DisplayManager, forwardDisplayEvents } from './displays/display-manager'
 import { SingleDisplayCapturer } from './capture/single-display-capturer'
+import { createDualDisplayCapturer } from './capture/dual-capture-factory'
+import type { DualDisplayCapturer } from './capture/dual-display-capturer'
 
 let mainWindow: BrowserWindow | null = null
 let displayManager: DisplayManager | null = null
 let singleDisplayCapturer: SingleDisplayCapturer | null = null
+let dualDisplayCapturer: DualDisplayCapturer | null = null
 
 function createWindow(): void {
   const isDev = Boolean(!app.isPackaged && process.env['ELECTRON_RENDERER_URL'])
@@ -58,6 +61,7 @@ function createWindow(): void {
   displayManager.ensureListening()
 
   singleDisplayCapturer = new SingleDisplayCapturer(displayManager)
+  dualDisplayCapturer = createDualDisplayCapturer(displayManager)
 
   // Register typed IPC handlers bound to authorized window and top frame
   registerIpcHandlers(
@@ -73,7 +77,8 @@ function createWindow(): void {
         })
     },
     displayManager,
-    singleDisplayCapturer
+    singleDisplayCapturer,
+    dualDisplayCapturer
   )
 
   // Forward validated display hotplug and metrics events to authorized window
@@ -85,6 +90,10 @@ function createWindow(): void {
     if (singleDisplayCapturer) {
       void singleDisplayCapturer.stop()
       singleDisplayCapturer = null
+    }
+    if (dualDisplayCapturer) {
+      void dualDisplayCapturer.stop()
+      dualDisplayCapturer = null
     }
     displayManager?.stopListening()
     displayManager = null

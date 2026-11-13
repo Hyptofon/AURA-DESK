@@ -14,7 +14,9 @@ import {
   type IpcResponse
 } from '../../shared/contracts/ipc'
 import { DisplayManager } from '../displays/display-manager'
+import type { SessionState } from '../../shared/contracts/channels'
 import { SingleDisplayCapturer } from '../capture/single-display-capturer'
+import type { DualDisplayCapturer } from '../capture/dual-display-capturer'
 
 export interface IpcMainLike {
   handle(
@@ -175,6 +177,7 @@ let currentCaptureSelection: CaptureSelection = { mode: 'both' }
 let activeDisplayManager: DisplayManager | null = null
 
 export function getCurrentSessionStatus(): SessionStatus {
+  if (runningMode === 'both' && activeDualCapturer) return activeDualCapturer.getStatus()
   return activeCapturer ? activeCapturer.getStatus() : currentSessionStatus
 }
 
@@ -198,7 +201,10 @@ export function setDisplayManager(manager: DisplayManager | null): void {
 }
 
 let activeCapturer: SingleDisplayCapturer | null = null
+let activeDualCapturer: DualDisplayCapturer | null = null
+let runningMode: 'single' | 'both' | null = null
 let activeStatusUnsubscribe: (() => void) | null = null
+let activeDualStatusUnsubscribe: (() => void) | null = null
 
 export function getSingleDisplayCapturer(
   manager: DisplayManager = getDisplayManager()
@@ -222,7 +228,8 @@ export function registerIpcHandlers(
   ipc: IpcMainLike = ipcMain,
   validatorOrContext?: IpcSenderValidator | IpcSenderValidationContext,
   displayManager?: DisplayManager,
-  singleDisplayCapturer?: SingleDisplayCapturer
+  singleDisplayCapturer?: SingleDisplayCapturer,
+  dualDisplayCapturer?: DualDisplayCapturer
 ): void {
   if (!validatorOrContext) {
     throw new Error(
@@ -240,6 +247,9 @@ export function registerIpcHandlers(
 
   const manager = displayManager ?? getDisplayManager()
   const capturer = singleDisplayCapturer ?? getSingleDisplayCapturer(manager)
+  const dual = dualDisplayCapturer ?? null
+  activeDualCapturer = dual
+  runningMode = null
 
   // Forward validated session status transitions from capturer to trusted window
   const webContents =
@@ -251,7 +261,8 @@ export function registerIpcHandlers(
       : null
 
   if (webContents?.send) {
-    activeStatusUnsubscribe = capturer.onStatusChange((status, error) => {
+    const forward = (source: 'single' | 'both', status: SessionStatus, error?: string): void => {
+      if (runningMode !== null && runningMode !== source) return
       if (!webContents.isDestroyed || !webContents.isDestroyed()) {
         try {
           webContents.send!(IPC_CHANNELS.SESSION_STATUS_CHANGED, { status, error })
@@ -259,7 +270,9 @@ export function registerIpcHandlers(
           console.error('Failed to forward session status change event:', err)
         }
       }
-    })
+    }
+    activeStatusUnsubscribe = capturer.onStatusChange((status, error) => forward('single', status, error))
+    if (dual) activeDualStatusUnsubscribe = dual.onStatusChange((status, error) => forward('both', status, error))
   }
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
@@ -300,7 +313,7 @@ export function registerIpcHandlers(
 
   ipc.handle(
     IPC_CHANNELS.SESSION_GET_STATE,
-    async (event: unknown): Promise<IpcResponse<{ status: SessionStatus }>> => {
+    async (event: unknown): Promise<IpcResponse<SessionState>> => {
       const auth = validator.validate(event)
       if (!auth.valid) {
         return {
@@ -312,12 +325,33 @@ export function registerIpcHandlers(
         }
       }
 
-      return {
-        ok: true,
-        data: {
-          status: capturer.getStatus() !== 'idle' ? capturer.getStatus() : currentSessionStatus
+      const source = runningMode === 'both' && dual ? dual : capturer
+      const runtime = source.getStatus()
+      const state: SessionState = {
+        status: runtime !== 'idle' ? runtime : currentSessionStatus
+      }
+      if (runningMode === 'both' && dual) {
+        const stats = dual.getBufferStats()
+        state.capture = {
+          mode: 'both', totalBytes: stats.totalBytes,
+          sources: stats.byDisplay.map((entry) => ({
+            displayId: entry.displayId, status: entry.status,
+            frameCount: entry.frameCount, totalBytes: entry.totalBytes,
+            newestTimestamp: entry.newestTimestamp
+          }))
+        }
+      } else if (runningMode === 'single' && typeof capturer.getBufferStats === 'function') {
+        const stats = capturer.getBufferStats()
+        state.capture = {
+          mode: 'single', totalBytes: stats.totalBytes,
+          sources: capturer.getActiveDisplayId() ? [{
+            displayId: capturer.getActiveDisplayId()!, status: capturer.getStatus(),
+            frameCount: stats.frameCount, totalBytes: stats.totalBytes,
+            newestTimestamp: stats.newestTimestamp
+          }] : []
         }
       }
+      return { ok: true, data: state }
     }
   )
 
@@ -349,6 +383,15 @@ export function registerIpcHandlers(
         }
       }
 
+      if (runningMode) {
+        const source = runningMode === 'both' ? dual : capturer
+        if (source && source.getStatus() !== 'idle') {
+          return { ok: false, error: {
+            code: 'SESSION_ACTIVE_STOP_REQUIRED',
+            message: 'Stop the active capture before changing its display permissions'
+          } }
+        }
+      }
       currentCaptureSelection = parsed.data
       return {
         ok: true,
@@ -374,6 +417,7 @@ export function registerIpcHandlers(
         }
       }
 
+      let requestedSelection = currentCaptureSelection
       if (payload !== undefined && payload !== null) {
         const parsed = SessionStartRequestSchema.safeParse(payload)
         if (!parsed.success) {
@@ -386,53 +430,52 @@ export function registerIpcHandlers(
           }
         }
         if (parsed.data?.selection) {
-          currentCaptureSelection = parsed.data.selection
+          requestedSelection = parsed.data.selection
         }
       }
 
-      if (currentCaptureSelection.mode === 'both') {
-        return {
-          ok: false,
-          error: {
-            code: 'UNSUPPORTED_MODE',
-            message:
-              'Simultaneous both-display capture is scheduled for Milestone M1 Task P1.3; please select a single display'
-          }
+      if (runningMode) {
+        const previous = runningMode === 'both' ? dual : capturer
+        if (previous && previous.getStatus() !== 'idle') {
+          return { ok: false, error: {
+            code: 'SESSION_ACTIVE_STOP_REQUIRED',
+            message: 'Stop the current session before starting or changing capture mode'
+          } }
         }
+      }
+
+      const selection = requestedSelection
+      if (selection.mode === 'both' && !dual) {
+        return { ok: false, error: {
+          code: 'UNSUPPORTED_MODE',
+          message: 'Simultaneous both-display capture requires an initialized P1.3 supervisor'
+        } }
       }
 
       try {
-        await capturer.start(currentCaptureSelection.displayId)
-
-        const currentStatus = capturer.getStatus()
-        if (currentStatus !== 'active') {
-          return {
-            ok: false,
-            error: {
-              code: 'CAPTURE_START_ABORTED',
-              message: `Capture start did not reach active state (current status: ${currentStatus})`
-            }
-          }
+        currentCaptureSelection = selection
+        runningMode = selection.mode
+        if (selection.mode === 'both') {
+          await dual!.start()
+        } else {
+          await capturer.start(selection.displayId)
         }
-
+        const currentStatus = selection.mode === 'both' ? dual!.getStatus() : capturer.getStatus()
+        if (currentStatus !== 'active') {
+          return { ok: false, error: {
+            code: 'CAPTURE_START_ABORTED',
+            message: `Capture start did not reach active state (current status: ${currentStatus})`
+          } }
+        }
         const responsePayload = {
           success: true,
           status: currentStatus,
-          displayId: currentCaptureSelection.displayId
+          ...(selection.mode === 'single' ? { displayId: selection.displayId } : {})
         }
-        return {
-          ok: true,
-          data: SessionStartResponseSchema.parse(responsePayload)
-        }
+        return { ok: true, data: SessionStartResponseSchema.parse(responsePayload) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        return {
-          ok: false,
-          error: {
-            code: 'CAPTURE_START_FAILED',
-            message: msg
-          }
-        }
+        return { ok: false, error: { code: 'CAPTURE_START_FAILED', message: msg } }
       }
     }
   )
@@ -451,15 +494,18 @@ export function registerIpcHandlers(
         }
       }
 
-      await capturer.stop()
-
-      const responsePayload = {
-        success: true,
-        status: capturer.getStatus()
-      }
-      return {
-        ok: true,
-        data: SessionStopResponseSchema.parse(responsePayload)
+      try {
+        const source = runningMode === 'both' && dual ? dual : capturer
+        await source.stop()
+        runningMode = null
+        currentSessionStatus = 'idle'
+        const responsePayload = { success: true, status: source.getStatus() }
+        return { ok: true, data: SessionStopResponseSchema.parse(responsePayload) }
+      } catch (err) {
+        return { ok: false, error: {
+          code: 'CAPTURE_STOP_FAILED',
+          message: err instanceof Error ? err.message : String(err)
+        } }
       }
     }
   )
@@ -505,6 +551,10 @@ export function unregisterIpcHandlers(ipc: IpcMainLike = ipcMain): void {
   if (activeStatusUnsubscribe) {
     activeStatusUnsubscribe()
     activeStatusUnsubscribe = null
+  }
+  if (activeDualStatusUnsubscribe) {
+    activeDualStatusUnsubscribe()
+    activeDualStatusUnsubscribe = null
   }
   for (const channel of Object.values(IPC_CHANNELS)) {
     try {

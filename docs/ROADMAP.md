@@ -13,7 +13,7 @@
 
 - [x] **P1.1** Enumerate two monitors, stable IDs, resolutions and hotplug notification.
 - [x] **P1.2** Capture Single display only; validate no leakage from other physical display (COMPLETED & ACCEPTED: PR #4 verified dual-monitor physical source isolation with 9/9 PASS [Display 1 Cobalt Blue ratio 1.0, Display 2 Crimson Red ratio 1.0; 52635 & 54331 bytes]; verified single-monitor physical capture with 7/7 PASS [laptop display 1238924755 Cobalt Blue ratio 1.0, 56340 bytes]; verified physical reconnection between sessions with 9/9 PASS; verified real live cable disconnect during active session [abrupt transition to error on selectedDisplayLost with zero cross-display fallback and clean recovery to idle on stopSession]; 266 unit tests pass across 14 suites; electron smoke PASS on single and dual display topologies; merged into main).
-- [ ] **P1.3** Capture two displays simultaneously; timestamps, bounded memory and stop tracks.
+- [x] **P1.3** Capture two displays simultaneously; timestamps, bounded memory and stop tracks. (COMPLETED: concurrent dual capture coordination via DualDisplayCapturer, synchronized timestamps, hard-bounded dual ring buffers, fail-closed teardown, late-start cancellation & backend stop error propagation; 299 unit tests green across 19 suites; PR #5).
 - [ ] **P1.4** Verify overlay exclusion / screen recursion, Windows DPI scaling.
 - [ ] **GATE-1** Demonstrate real Windows 2-monitor capture. If fail, revise architecture ADR and Stop; do not proceed as if functional.
 

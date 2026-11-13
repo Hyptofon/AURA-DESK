@@ -218,7 +218,11 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     } catch (err: unknown) {
       if (this.sessionGeneration === currentGen) {
         const errorMsg = err instanceof Error ? err.message : String(err)
-        await this.stopAsync('error', errorMsg)
+        try {
+          await this.stopAsync('error', errorMsg)
+        } catch {
+          // Teardown failure is recorded in status and lastError by stopAsync
+        }
       }
       throw err
     }
@@ -359,15 +363,22 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
 
     if (this.backend.stop) {
       try {
+        let stopErr: unknown = null
         const stopPromise = Promise.resolve(this.backend.stop())
           .catch((err) => {
             console.error('Asynchronous error during abrupt capture backend stop:', err)
+            stopErr = err
+          })
+          .then(() => {
+            if (stopErr) throw stopErr
           })
           .finally(() => {
             if (this.pendingBackendStop === stopPromise) {
               this.pendingBackendStop = null
             }
           })
+        // Attach noop handler to prevent unhandled rejection warning in Node runtime
+        stopPromise.catch(() => {})
         this.pendingBackendStop = stopPromise
       } catch (err) {
         console.error('Synchronous error invoking capture backend stop:', err)
@@ -389,17 +400,19 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
       this.unsubscribeDisplayManager = null
     }
 
+    let teardownError: unknown = null
+
     // Await any pending background stop from a previous abrupt termination first
     if (this.pendingBackendStop) {
       try {
         await this.pendingBackendStop
-      } catch {
-        // Logged and handled in pendingBackendStop handler
+      } catch (err) {
+        teardownError = err
       }
     }
 
     // Idempotent check: if already idle and finalStatus is idle, return
-    if (this.status === 'idle' && finalStatus === 'idle') {
+    if (this.status === 'idle' && finalStatus === 'idle' && !teardownError) {
       return
     }
 
@@ -413,6 +426,7 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
         await this.backend.stop()
       } catch (err) {
         console.error('Error stopping capture backend:', err)
+        teardownError = teardownError ?? err
       }
     }
 
@@ -422,6 +436,15 @@ export class SingleDisplayCapturer implements ScreenCapturePort {
     this.activeDisplayId = null
     this.resolvedSourceId = null
     this.activeDisplayBounds = undefined
+
+    if (teardownError) {
+      const msg = teardownError instanceof Error ? teardownError.message : String(teardownError)
+      const combinedError = error
+        ? `${error}; BACKEND_STOP_FAILED: ${msg}`
+        : `BACKEND_STOP_FAILED: ${msg}`
+      this.setStatus('error', combinedError)
+      throw teardownError
+    }
 
     this.setStatus(finalStatus, error)
   }

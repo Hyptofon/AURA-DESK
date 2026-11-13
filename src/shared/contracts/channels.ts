@@ -40,6 +40,24 @@ export type SessionStatus =
   | 'stopping'
   | 'error'
 
+/** Metadata-only capture diagnostics: never expose pixel bytes over IPC. */
+export interface SessionCaptureSource {
+  displayId: string
+  status: SessionStatus
+  frameCount: number
+  totalBytes: number
+  newestTimestamp: number | null
+}
+
+export interface SessionState {
+  status: SessionStatus
+  capture?: {
+    mode: 'single' | 'both'
+    totalBytes: number
+    sources: SessionCaptureSource[]
+  }
+}
+
 /**
  * Application metadata contract.
  */

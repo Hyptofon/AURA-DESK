@@ -377,9 +377,41 @@ describe('SingleDisplayCapturer', () => {
     expect(capturer.getFrameHistory().length).toBe(0)
     expect(backendStopCalled).toBe(true)
 
-    // Stop recovers state back to idle cleanly
+    // Stop on a failing backend must reject and remain in error status
+    await expect(capturer.stop()).rejects.toThrow('Simulated async backend stop failure')
+    expect(capturer.getStatus()).toBe('error')
+    expect(capturer.getLastError()).toContain('BACKEND_STOP_FAILED')
+
+    // When backend stop succeeds on retry, state recovers back to idle cleanly
+    failingBackend.stop = async () => {}
     await capturer.stop()
     expect(capturer.getStatus()).toBe('idle')
+    expect(capturer.getLastError()).toBeNull()
+  })
+
+  it('stop() rejects and enters error state if backend.stop() throws', async () => {
+    const errorBackend: FrameCaptureBackend = {
+      start: async () => {},
+      captureFrame: async (target) => createValidCapturedFrame({ displayId: target.displayId }),
+      stop: async () => {
+        throw new Error('Device release failed')
+      }
+    }
+
+    const capturer = new SingleDisplayCapturer(displayManager, {
+      capturerApi: mockCapturer,
+      backend: errorBackend
+    })
+
+    await capturer.start('202')
+    expect(capturer.getStatus()).toBe('active')
+
+    await expect(capturer.stop()).rejects.toThrow('Device release failed')
+    expect(capturer.getStatus()).toBe('error')
+    expect(capturer.getLastError()).toContain('BACKEND_STOP_FAILED: Device release failed')
+    // Buffer must still be completely flushed even on stop failure
+    expect(capturer.getLatestFrame()).toBeNull()
+    expect(capturer.getBufferStats().frameCount).toBe(0)
   })
 
   it('hotplug: prevents new capture start from overlapping with in-flight asynchronous backend teardown', async () => {

@@ -783,6 +783,102 @@ describe('MediaStream Pipeline & Authorization Gate Regression Suite', () => {
     })
   })
 
+  describe('CaptureWindowClient cancellation & stop race invariants', () => {
+    it('cancellation race: Stop during in-flight getDisplayMedia() aborts start and prevents stream restoration', async () => {
+      let resolveGetDisplayMedia!: (result: { ok: boolean; trackId?: string }) => void
+      const getDisplayMediaPromise = new Promise<{ ok: boolean; trackId?: string }>((resolve) => {
+        resolveGetDisplayMedia = resolve
+      })
+
+      let trackStopped = false
+      const fakeTrack = {
+        id: 'mock-delayed-track',
+        readyState: 'live',
+        stop: () => {
+          trackStopped = true
+        }
+      }
+
+      const client = new CaptureWindowClient({
+        webExecutor: async (script: string) => {
+          if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
+            return getDisplayMediaPromise
+          }
+          if (script.includes('window.__activeTrack') || script.includes('__streamCancelled')) {
+            fakeTrack.stop()
+            return {}
+          }
+          return { ok: true }
+        }
+      })
+
+      // 1. Begin startStream (in-flight getDisplayMedia)
+      const startPromise = client.startStream(sampleTarget)
+      expect(client.isStreamActive()).toBe(false)
+
+      // 2. Stop is invoked while getDisplayMedia is still pending
+      await client.stopStream()
+      expect(client.isStreamActive()).toBe(false)
+      expect(client.getActiveTarget()).toBeNull()
+
+      // 3. Now let the delayed getDisplayMedia resolve
+      resolveGetDisplayMedia({ ok: true, trackId: fakeTrack.id })
+
+      // 4. startStream must reject and NOT restore active state
+      await expect(startPromise).rejects.toThrow(/cancelled/)
+      expect(client.isStreamActive()).toBe(false)
+      expect(client.getActiveTarget()).toBeNull()
+      expect(trackStopped).toBe(true)
+
+      // 5. Calling grabFrame must fail closed
+      await expect(client.grabFrame(sampleTarget)).rejects.toThrow(
+        /Cannot grab frame: capture stream is not active/
+      )
+    })
+
+    it('cancellation race: Stop during window document loading or media acquisition destroys window and prevents late activation', async () => {
+      let resolveExecute!: (result: unknown) => void
+      const executePromise = new Promise((resolve) => {
+        resolveExecute = resolve
+      })
+
+      let windowDestroyed = false
+      const mockWin = new MockCaptureWindow({ processId: 10, routingId: 10 }, async (script) => {
+        if (script.includes('navigator.mediaDevices.getDisplayMedia')) {
+          return executePromise
+        }
+        return { ok: true }
+      })
+      const originalDestroy = mockWin.destroy.bind(mockWin)
+      mockWin.destroy = () => {
+        windowDestroyed = true
+        mockWin.destroyed = true
+        originalDestroy()
+      }
+
+      const client = new CaptureWindowClient({
+        windowFactory: () => mockWin,
+        htmlPath: resolveCaptureHtmlPath()
+      })
+
+      const startPromise = client.startStream(sampleTarget)
+      expect(client.isStreamActive()).toBe(false)
+
+      // Stop while start is pending
+      await client.stopStream()
+      expect(client.isStreamActive()).toBe(false)
+      expect(windowDestroyed).toBe(true)
+      expect(client.getCaptureWindow()).toBeNull()
+
+      // Late resolution
+      resolveExecute({ ok: true, trackId: 'late-track' })
+
+      await expect(startPromise).rejects.toThrow(/cancelled/)
+      expect(client.isStreamActive()).toBe(false)
+      expect(client.getCaptureWindow()).toBeNull()
+    })
+  })
+
   describe('defaultCaptureWindowFactory session unwrapping & isolation invariants', () => {
     it('unwraps options.session when called with { session: isolatedSession }', () => {
       mockBrowserWindowCalls.length = 0

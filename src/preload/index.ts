@@ -4,6 +4,7 @@ import {
   type AppInfo,
   type CaptureSelection,
   type SessionStatus,
+  type SessionState,
   type DisplayConfiguration,
   type IpcResponse
 } from '../shared/contracts/channels'
@@ -12,7 +13,7 @@ export interface AuraApi {
   platform: string
   version: string
   getAppInfo(): Promise<AppInfo>
-  getSessionState(): Promise<{ status: SessionStatus }>
+  getSessionState(): Promise<SessionState>
   setCaptureSelection(
     selection: CaptureSelection
   ): Promise<{ success: boolean; selection: CaptureSelection }>
@@ -43,7 +44,7 @@ export const auraApi: AuraApi = {
   platform: process.platform,
   version: '0.1.0',
   getAppInfo: () => invokeChannel<AppInfo>(IPC_CHANNELS.APP_GET_INFO),
-  getSessionState: () => invokeChannel<{ status: SessionStatus }>(IPC_CHANNELS.SESSION_GET_STATE),
+  getSessionState: () => invokeChannel<SessionState>(IPC_CHANNELS.SESSION_GET_STATE),
   setCaptureSelection: (selection: CaptureSelection) =>
     invokeChannel<{ success: boolean; selection: CaptureSelection }>(
       IPC_CHANNELS.SESSION_SET_SELECTION,
