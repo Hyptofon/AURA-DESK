@@ -1,6 +1,6 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 COMPLETED, M2 COMPLETED (P2.1, P2.2, P2.3, P2.4 IMPLEMENTED & MERGED, GATE-2 CONSOLIDATED MANUAL CHECKLIST PREPARED)`.
+**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 COMPLETED, M2 COMPLETED & VERIFIED (GATE-2 CLOSED WITH REAL HARDWARE EVIDENCE), M3 IN PROGRESS`.
 
 ## Summary
 
@@ -8,12 +8,12 @@
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
 - [x] Test and lint infrastructure configured and verified green (P0.3, 31 suites, 438 tests).
-- [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines).
+- [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
 - [ ] Product acceptance criteria verified.
 
 ## Current milestone
 
-**M2 — Audio observation spike** (Milestones M0 and M1 completed and verified; Tasks P2.1, P2.2, P2.3, P2.4 completed and merged; GATE-2 consolidated manual checklist prepared; Milestone M3 pending).
+**M3 — Transcription and question detection** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Task P3.1 in progress).
 
 ## Verified deliverables
 
@@ -207,7 +207,44 @@
 
 ## Next recommended task
 
-Milestone M3: Task P3.1 (Audio Transcription Engine Selection & Integration).
+### GATE-2 Physical Windows Verification Evidence (VERIFIED & CLOSED)
+
+User completed physical verification on real Windows hardware (real observations, not mocks):
+
+1. **Real Microphone and Energy VAD:**
+   - Microphone delivered live PCM audio chunks (status === 'active').
+   - Source timestamps updated monotonically.
+   - Measured RMS dynamically adapted with human speech.
+   - VAD cleanly switched from isSpeech: false during silence to isSpeech: true during speech, returning to false when speech ceased.
+
+2. **Simultaneous MIC + SYSTEM Loopback:**
+   - Both audio sources ran actively in parallel without cross-cancellation:
+     * MIC: status active, chunks 70–79, bytes 286,720–323,584, timestamps updating.
+     * SYSTEM: status active, chunks 85–118, bytes 1,392,640–1,933,312, timestamps updating.
+   - Buffer bounds maintained reliably without memory leaks.
+
+3. **Pause Verification (Buffer Freeze):**
+   - Paused audio session and verified timestamps 3 seconds apart:
+     * micStopped: true, systemStopped: true
+     * Before pause: mic: 1794605660154, system: 1794605660185
+     * After 3 seconds: mic: 1794605660154, system: 1794605660185 (identical).
+   - Zero incoming chunks entered buffers during pause.
+
+4. **Stop Zero-Retention:**
+   - On Stop, state verified completely idle:
+     * SCREEN: idle
+     * MIC: status idle, chunkCount: 0, totalBytes: 0, timestamps: null
+     * SYSTEM: status idle, chunkCount: 0, totalBytes: 0, timestamps: null
+
+5. **Real Windows System Loopback via Headphones:**
+   - Web Audio analyser measured live system loopback stream while audio played through headphones:
+     * Audio playing: trackState: 'live', muted: false, averageRms: 0.067731, maxRms: 0.238938
+     * Playback paused: trackState: 'live', muted: false, averageRms: 0.000007, maxRms: 0.000009
+   - Content-dependent Windows audio signal confirmed (not a synthetic or silent stream).
+
+**GATE-2 Outcome:** Electron/Chromium pipeline chosen as the verified production audio architecture. .NET/NAudio helper is not required for this hardware setup and is retained only as an optional future fallback.
+
+Milestone M3: Task P3.1 (STT Provider Contract & Resampling Architecture).
 
 ## Completed work template (fill after genuine verification)
 
