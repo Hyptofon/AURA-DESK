@@ -14,18 +14,20 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (typeof window === 'undefined' || !window.api) return
 
+    let mounted = true
+
     // Load initial session state
     if (window.api.getSessionState) {
       window.api.getSessionState().then((state) => {
-        if (state?.status) setSessionStatus(state.status)
+        if (mounted && state?.status) setSessionStatus(state.status)
       }).catch(() => {})
     }
 
     // Load initial audio state
     if (window.api.getAudioState) {
       window.api.getAudioState().then((state) => {
-        if (state) {
-          setAudioState(state)
+        if (mounted && state) {
+          setAudioState((current) => current ?? state)
           setAudioConfig({
             mic: state.mic.enabled,
             system: state.system.enabled
@@ -37,17 +39,24 @@ export function App(): React.JSX.Element {
     // Listen for audio state updates
     if (window.api.onAudioStateChanged) {
       const unsubscribe = window.api.onAudioStateChanged((state) => {
-        setAudioState(state)
-        setAudioConfig((prev) => ({
-          ...prev,
-          mic: state.mic.enabled,
-          system: state.system.enabled
-        }))
+        if (mounted) {
+          setAudioState(state)
+          setAudioConfig((prev) => ({
+            ...prev,
+            mic: state.mic.enabled,
+            system: state.system.enabled
+          }))
+        }
       })
-      return () => unsubscribe()
+      return () => {
+        mounted = false
+        unsubscribe()
+      }
     }
 
-    return undefined
+    return () => {
+      mounted = false
+    }
   }, [])
 
   const handleToggleMic = useCallback(async (enabled: boolean) => {
