@@ -272,6 +272,9 @@ export function registerIpcHandlers(
   const dual = dualDisplayCapturer ?? null
   activeDualCapturer = dual
   activeAudioSupervisor = audioSupervisor ?? null
+  activeMicBackend = micBackend ?? null
+  activeLoopbackBackend = loopbackBackend ?? null
+  activeTranscriptionPipeline = transcriptionPipeline ?? null
   runningMode = null
   micVad.reset()
   systemVad.reset()
@@ -323,10 +326,6 @@ export function registerIpcHandlers(
       })
     }
   }
-
-  activeMicBackend = micBackend ?? null
-  activeLoopbackBackend = loopbackBackend ?? null
-  activeTranscriptionPipeline = transcriptionPipeline ?? null
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
     const auth = validator.validate(event)

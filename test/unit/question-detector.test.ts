@@ -62,6 +62,18 @@ describe('question-detector: detectQuestionInText & evaluateSegmentForQuestion',
       const res = detectQuestionInText('Я точно знаю, що ця функція повертає число.')
       expect(res.isQuestion).toBe(false)
     })
+
+    it('rejects declarative Ukrainian statement containing infinitive task reference without question mark', () => {
+      const res = detectQuestionInText('Ми знаємо, як зробити це завдання.')
+      expect(res.isQuestion).toBe(false)
+    })
+
+    it('detects polite Ukrainian preamble followed by request pattern', () => {
+      const res = detectQuestionInText('Будь ласка, підкажіть як це працює')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('uk')
+      expect(res.matchedPattern).toBe('підкажіть')
+    })
   })
 
   describe('detectQuestionInText — English', () => {
@@ -106,6 +118,25 @@ describe('question-detector: detectQuestionInText & evaluateSegmentForQuestion',
     it('rejects ordinary English statements containing what in subordinate clause', () => {
       const res = detectQuestionInText('The engineer knows what needs to be changed.')
       expect(res.isQuestion).toBe(false)
+    })
+
+    it('rejects declarative English statement containing auxiliary words without question mark', () => {
+      const res = detectQuestionInText('The engineer will this week deploy the service.')
+      expect(res.isQuestion).toBe(false)
+    })
+
+    it('detects English auxiliary question pattern without question mark', () => {
+      const res = detectQuestionInText('Is this function thread safe')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('en')
+      expect(res.matchedPattern).toBe('is this')
+    })
+
+    it('detects English does auxiliary question pattern without question mark', () => {
+      const res = detectQuestionInText('Does it handle concurrent calls')
+      expect(res.isQuestion).toBe(true)
+      expect(res.language).toBe('en')
+      expect(res.matchedPattern).toBe('does it')
     })
 
     it('rejects ordinary English statements', () => {

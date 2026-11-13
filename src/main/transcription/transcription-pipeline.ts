@@ -39,6 +39,7 @@ export class TranscriptionPipeline {
   private isPaused = false
   private sessionGeneration = 0
   private currentAbortController: AbortController | null = null
+  private pendingAudioWindow: NonNullable<ReturnType<SpeechWindowAssembler['ingest']>> | null = null
 
   private stateSubscribers = new Set<(state: TranscriptionSessionState) => void>()
   private questionSubscribers = new Set<(question: QuestionCandidate) => void>()
@@ -97,6 +98,7 @@ export class TranscriptionPipeline {
   public pause(): void {
     this.isPaused = true
     this.sessionGeneration++
+    this.pendingAudioWindow = null
     this.micAssembler.reset()
     this.systemAssembler.reset()
     this.questionControls.cancel()
@@ -122,6 +124,7 @@ export class TranscriptionPipeline {
   public stop(): void {
     this.isPaused = false
     this.sessionGeneration++
+    this.pendingAudioWindow = null
     this.micAssembler.reset()
     this.systemAssembler.reset()
     this.questionControls.cancel()
@@ -148,8 +151,13 @@ export class TranscriptionPipeline {
   }
 
   private async processAudioWindow(window: NonNullable<ReturnType<SpeechWindowAssembler['ingest']>>): Promise<void> {
-    if (this.isTranscribing || this.isPaused) {
-      // Avoid concurrency explosion; drop overlapping in-flight window
+    if (this.isPaused) {
+      return
+    }
+
+    if (this.isTranscribing) {
+      // Bounded queue: buffer at most 1 pending speech window while STT inference is busy
+      this.pendingAudioWindow = window
       return
     }
 
@@ -224,6 +232,12 @@ export class TranscriptionPipeline {
         this.isTranscribing = false
         this.currentAbortController = null
         this.notifyStateChanged()
+
+        if (this.pendingAudioWindow && !this.isPaused) {
+          const nextWindow = this.pendingAudioWindow
+          this.pendingAudioWindow = null
+          void this.processAudioWindow(nextWindow)
+        }
       }
     }
   }
