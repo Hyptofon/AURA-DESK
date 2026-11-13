@@ -5,8 +5,8 @@ import type {
   FrameBufferStats,
   FrameCaptureBackend,
   ScreenCapturePort
-} from '../../shared/contracts/capture'
-import type { DisplayBounds, SessionStatus } from '../../shared/contracts/channels'
+} from '@/shared/contracts/capture'
+import type { DisplayBounds, SessionStatus } from '@/shared/contracts/channels'
 import type { DisplayManager } from '../displays/display-manager'
 import { FrameRingBuffer } from './frame-buffer'
 import { MediaStreamDisplayCaptureBackend } from './mediastream-backend'
