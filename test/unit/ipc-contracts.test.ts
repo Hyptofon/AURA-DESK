@@ -11,7 +11,8 @@ import {
   SessionStartRequestSchema,
   SessionStartResponseSchema,
   SessionStopResponseSchema,
-  CaptureStatusSchema
+  CaptureStatusSchema,
+  AudioSubmitChunkSchema
 } from '@/shared/contracts/ipc'
 
 describe('IPC Contracts & Schemas', () => {
@@ -342,6 +343,64 @@ describe('IPC Contracts & Schemas', () => {
             totalBytes: 0
           }).success
         ).toBe(false)
+      })
+    })
+
+    describe('AudioSubmitChunkSchema', () => {
+      it('validates genuine mic audio chunk with Uint8Array data', () => {
+        const chunk = {
+          source: 'mic',
+          data: new Uint8Array([0, 1, 2, 3]),
+          timestamp: Date.now(),
+          durationMs: 64,
+          sampleRate: 16000,
+          channels: 1
+        }
+        const res = AudioSubmitChunkSchema.safeParse(chunk)
+        expect(res.success).toBe(true)
+      })
+
+      it('validates genuine system audio chunk with Uint8Array data', () => {
+        const chunk = {
+          source: 'system',
+          data: new Uint8Array([10, 20, 30, 40]),
+          timestamp: Date.now(),
+          durationMs: 85,
+          sampleRate: 48000,
+          channels: 2
+        }
+        const res = AudioSubmitChunkSchema.safeParse(chunk)
+        expect(res.success).toBe(true)
+      })
+
+      it('rejects invalid source', () => {
+        const chunk = {
+          source: 'display',
+          data: new Uint8Array([0, 1]),
+          timestamp: Date.now(),
+          durationMs: 20
+        }
+        expect(AudioSubmitChunkSchema.safeParse(chunk).success).toBe(false)
+      })
+
+      it('rejects non-Uint8Array payload data', () => {
+        const chunk = {
+          source: 'mic',
+          data: 'not-a-typed-array',
+          timestamp: Date.now(),
+          durationMs: 20
+        }
+        expect(AudioSubmitChunkSchema.safeParse(chunk).success).toBe(false)
+      })
+
+      it('rejects negative duration', () => {
+        const chunk = {
+          source: 'mic',
+          data: new Uint8Array(4),
+          timestamp: Date.now(),
+          durationMs: -5
+        }
+        expect(AudioSubmitChunkSchema.safeParse(chunk).success).toBe(false)
       })
     })
   })
