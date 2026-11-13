@@ -221,8 +221,8 @@ let activeLoopbackBackend: ElectronLoopbackBackend | null = null
 let activeTranscriptionPipeline: TranscriptionPipeline | null = null
 let activeTranscriptionUnsubscribe: (() => void) | null = null
 let audioChunkCounter = 0
-let micVad = new EnergyVad()
-let systemVad = new EnergyVad()
+const micVad = new EnergyVad()
+const systemVad = new EnergyVad()
 
 export function getSingleDisplayCapturer(
   manager: DisplayManager = getDisplayManager()
