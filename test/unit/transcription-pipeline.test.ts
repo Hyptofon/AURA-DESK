@@ -31,7 +31,8 @@ describe('TranscriptionPipeline', () => {
     })
     const pipeline = new TranscriptionPipeline({
       provider: fakeProvider,
-      windowOptions: { minSpeechDurationMs: 300, silenceHangoverMs: 200 }
+      windowOptions: { minSpeechDurationMs: 300, silenceHangoverMs: 200 },
+      controlsOptions: { debounceMs: 0 }
     })
 
     const emittedQuestions: QuestionCandidate[] = []
@@ -53,10 +54,11 @@ describe('TranscriptionPipeline', () => {
     expect(state.questionCount).toBe(1)
     expect(state.latestQuestion?.text).toBe('Що таке алгоритм сортування?')
     expect(state.latestQuestion?.language).toBe('uk')
-    expect(state.latestQuestion?.status).toBe('detected')
+    expect(state.latestQuestion?.status).toBe('ready')
 
     expect(emittedQuestions).toHaveLength(1)
     expect(emittedQuestions[0].text).toBe('Що таке алгоритм сортування?')
+    expect(emittedQuestions[0].status).toBe('ready')
   })
 
   it('transcribes non-question statements without emitting question candidate', async () => {
@@ -90,7 +92,8 @@ describe('TranscriptionPipeline', () => {
       provider: fakeProvider,
       maxSegments: 2,
       maxQuestions: 2,
-      windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 }
+      windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+      controlsOptions: { debounceMs: 0, cooldownMs: 0 }
     })
 
     // Produce 3 speech utterances
@@ -103,6 +106,70 @@ describe('TranscriptionPipeline', () => {
     const state = pipeline.getState()
     expect(state.segmentCount).toBe(2) // Capped at maxSegments: 2
     expect(state.questionCount).toBe(2) // Capped at maxQuestions: 2
+  })
+
+  it('debounces question candidate emission until debounce delay completes', async () => {
+    vi.useFakeTimers()
+    try {
+      const fakeProvider = new FakeSttProvider({
+        defaultText: 'What is this function doing?'
+      })
+      const pipeline = new TranscriptionPipeline({
+        provider: fakeProvider,
+        windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+        controlsOptions: { debounceMs: 500 }
+      })
+
+      const emitted: QuestionCandidate[] = []
+      pipeline.onQuestionDetected((q) => emitted.push(q))
+
+      await pipeline.ingestChunk(makeChunk('mic', 1000, 100, true))
+      await pipeline.ingestChunk(makeChunk('mic', 1100, 50, false))
+
+      expect(emitted).toHaveLength(0)
+
+      // Advance timers by debounce duration (500ms)
+      vi.advanceTimersByTime(500)
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0].text).toBe('What is this function doing?')
+      expect(emitted[0].status).toBe('ready')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels pending debounced question candidate on stop()', async () => {
+    vi.useFakeTimers()
+    try {
+      const fakeProvider = new FakeSttProvider({
+        defaultText: 'Will this question be cancelled on stop?'
+      })
+      const pipeline = new TranscriptionPipeline({
+        provider: fakeProvider,
+        windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+        controlsOptions: { debounceMs: 500 }
+      })
+
+      const emitted: QuestionCandidate[] = []
+      pipeline.onQuestionDetected((q) => emitted.push(q))
+
+      await pipeline.ingestChunk(makeChunk('mic', 1000, 100, true))
+      await pipeline.ingestChunk(makeChunk('mic', 1100, 50, false))
+
+      expect(emitted).toHaveLength(0)
+
+      // Stop before debounce timer fires
+      pipeline.stop()
+
+      // Advance timers past debounce delay
+      vi.advanceTimersByTime(1000)
+
+      // Candidate must be dropped, not emitted
+      expect(emitted).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('aborts in-flight inference on stop() without throwing unhandled error', async () => {
