@@ -42,7 +42,7 @@ export class IntegratedAudioSupervisor {
 
     return {
       mic: {
-        enabled: micStatus === 'active' || micStatus === 'starting',
+        enabled: micStatus === 'active' || micStatus === 'starting' || micStatus === 'paused',
         status: micStatus,
         deviceId: this.micCapturer.getSelectedDeviceId(),
         bufferStats: this.micCapturer.getBufferStats(),
@@ -50,7 +50,7 @@ export class IntegratedAudioSupervisor {
         errorMessage: this.micCapturer.getErrorMessage()
       },
       system: {
-        enabled: systemStatus === 'active' || systemStatus === 'starting',
+        enabled: systemStatus === 'active' || systemStatus === 'starting' || systemStatus === 'paused',
         status: systemStatus,
         bufferStats: this.systemCapturer.getBufferStats(),
         errorMessage: this.systemCapturer.getErrorMessage()
@@ -75,10 +75,10 @@ export class IntegratedAudioSupervisor {
       const deviceChanged = config.micDeviceId && currentDeviceId && config.micDeviceId !== currentDeviceId
 
       if (config.mic) {
-        if (deviceChanged && currentMicStatus === 'active') {
+        if (deviceChanged && (currentMicStatus === 'active' || currentMicStatus === 'paused')) {
           await this.micCapturer.stop()
           await this.micCapturer.start(config.micDeviceId)
-        } else if (currentMicStatus !== 'active' && currentMicStatus !== 'starting') {
+        } else if (currentMicStatus !== 'active' && currentMicStatus !== 'starting' && currentMicStatus !== 'paused') {
           await this.micCapturer.start(config.micDeviceId).catch((err) => {
             // Error recorded inside capturer; allowed to continue to system toggle
             console.error('Failed to start microphone:', err)
@@ -96,7 +96,7 @@ export class IntegratedAudioSupervisor {
       const currentSystemStatus = this.systemCapturer.getStatus()
 
       if (config.system) {
-        if (currentSystemStatus !== 'active' && currentSystemStatus !== 'starting') {
+        if (currentSystemStatus !== 'active' && currentSystemStatus !== 'starting' && currentSystemStatus !== 'paused') {
           await this.systemCapturer.start().catch((err) => {
             console.error('Failed to start system audio loopback:', err)
           })
@@ -109,12 +109,41 @@ export class IntegratedAudioSupervisor {
         }
       }
 
+      // 3. Handle pause state if explicitly specified
+      if (typeof config.paused === 'boolean') {
+        if (config.paused) {
+          this.micCapturer.pause()
+          this.systemCapturer.pause()
+        } else {
+          this.micCapturer.resume()
+          this.systemCapturer.resume()
+        }
+      }
+
       const updatedState = this.getState()
       this.notifyStateChanged()
       return updatedState
     } finally {
       this.isConfiguring = false
     }
+  }
+
+  /**
+   * Pauses all active audio capture sources without tearing down streams.
+   */
+  pauseAll(): void {
+    this.micCapturer.pause()
+    this.systemCapturer.pause()
+    this.notifyStateChanged()
+  }
+
+  /**
+   * Resumes all paused audio capture sources.
+   */
+  resumeAll(): void {
+    this.micCapturer.resume()
+    this.systemCapturer.resume()
+    this.notifyStateChanged()
   }
 
   /**
