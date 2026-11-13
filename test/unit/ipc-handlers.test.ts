@@ -12,8 +12,11 @@ import {
   IPC_CHANNELS,
   DisplayConfigurationSchema,
   type IpcResponse,
-  type DisplayConfiguration
+  type DisplayConfiguration,
+  type SessionStatus
 } from '../../src/shared/contracts/ipc'
+import type { ScreenCapturePort } from '../../src/shared/contracts/capture'
+import type { SingleDisplayCapturer } from '../../src/main/capture/single-display-capturer'
 import { DisplayManager, forwardDisplayEvents } from '../../src/main/displays/display-manager'
 
 class MockIpcMain implements IpcMainLike {
@@ -446,7 +449,12 @@ describe('Main Process IPC Handlers', () => {
       }
 
       const customIpc = new MockIpcMain()
-      registerIpcHandlers(customIpc, { trustedWebContents: defaultWebContents }, undefined, customCapturer)
+      registerIpcHandlers(
+        customIpc,
+        { trustedWebContents: defaultWebContents },
+        undefined,
+        customCapturer as unknown as SingleDisplayCapturer
+      )
 
       const startHandler = customIpc.handlers.get(IPC_CHANNELS.SESSION_START)!
       const res = (await startHandler(makeValidEvent(), {
@@ -479,7 +487,12 @@ describe('Main Process IPC Handlers', () => {
       }
 
       const customIpc = new MockIpcMain()
-      registerIpcHandlers(customIpc, { trustedWebContents: defaultWebContents }, undefined, customCapturer)
+      registerIpcHandlers(
+        customIpc,
+        { trustedWebContents: defaultWebContents },
+        undefined,
+        customCapturer as unknown as SingleDisplayCapturer
+      )
 
       const stopHandler = customIpc.handlers.get(IPC_CHANNELS.SESSION_STOP)!
       const res = (await stopHandler(makeValidEvent())) as IpcResponse<{ success: boolean; status: string }>

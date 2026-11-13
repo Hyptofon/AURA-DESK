@@ -50,7 +50,7 @@ describe('IPC Contracts & Schemas', () => {
         displayId: 'display-1234'
       })
       expect(result.success).toBe(true)
-      if (result.success) {
+      if (result.success && result.data.mode === 'single') {
         expect(result.data.mode).toBe('single')
         expect(result.data.displayId).toBe('display-1234')
       }

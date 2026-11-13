@@ -47,6 +47,7 @@ describe('P2.3 Audio IPC Registration and Validation', () => {
     getState: ReturnType<typeof vi.fn>
     setAudioConfig: ReturnType<typeof vi.fn>
     enumerateDevices: ReturnType<typeof vi.fn>
+    stopAll: ReturnType<typeof vi.fn>
     onStateChanged: ReturnType<typeof vi.fn>
   }
   let mockWebContents: {
@@ -61,7 +62,7 @@ describe('P2.3 Audio IPC Registration and Validation', () => {
       status: 'idle',
       deviceId: null,
       bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null },
-      vad: { isSpeech: false, energyRms: 0, speechDurationMs: 0, silenceDurationMs: 0 },
+      vad: { isSpeech: false, rms: 0, speechDurationMs: 0, silenceDurationMs: 0 },
       errorMessage: null
     },
     system: {
