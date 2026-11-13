@@ -3,7 +3,7 @@ import {
   isAllowedNavigation,
   validateExternalUrl,
   safeOpenExternal
-} from '../../src/main/security/navigation-guard'
+} from '@/main/security/navigation-guard'
 
 describe('navigation-guard', () => {
   describe('isAllowedNavigation', () => {
