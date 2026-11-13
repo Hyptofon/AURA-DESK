@@ -35,6 +35,10 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(typeof auraApi.onDisplaysChanged).toBe('function')
       expect(typeof auraApi.startSession).toBe('function')
       expect(typeof auraApi.stopSession).toBe('function')
+      expect(typeof auraApi.getAudioState).toBe('function')
+      expect(typeof auraApi.setAudioConfig).toBe('function')
+      expect(typeof auraApi.getAudioDevices).toBe('function')
+      expect(typeof auraApi.onAudioStateChanged).toBe('function')
     })
 
     it('does not expose raw Node or Electron APIs on auraApi', () => {
@@ -206,6 +210,68 @@ describe('Real Preload AuraApi and Context Isolation', () => {
 
         consoleErrorSpy.mockRestore()
         unsubscribe()
+      })
+    })
+
+    describe('Real auraApi audio method invocations via ipcRenderer', () => {
+      it('calls AUDIO_GET_STATE channel and unwraps state data', async () => {
+        const fakeState = {
+          mic: { enabled: true, status: 'active' },
+          system: { enabled: false, status: 'idle' }
+        }
+        mockInvoke.mockResolvedValueOnce({ ok: true, data: fakeState })
+
+        const result = await auraApi.getAudioState!()
+
+        expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.AUDIO_GET_STATE, undefined)
+        expect(result).toEqual(fakeState)
+      })
+
+      it('calls AUDIO_SET_CONFIG channel with config payload', async () => {
+        const config = { mic: true, system: false }
+        const fakeState = {
+          mic: { enabled: true, status: 'active' },
+          system: { enabled: false, status: 'idle' }
+        }
+        mockInvoke.mockResolvedValueOnce({ ok: true, data: fakeState })
+
+        const result = await auraApi.setAudioConfig!(config)
+
+        expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.AUDIO_SET_CONFIG, config)
+        expect(result).toEqual(fakeState)
+      })
+
+      it('calls AUDIO_GET_DEVICES channel and unwraps devices', async () => {
+        const fakeDevices = [{ id: 'mic-1', label: 'USB Mic', isDefault: true }]
+        mockInvoke.mockResolvedValueOnce({ ok: true, data: fakeDevices })
+
+        const result = await auraApi.getAudioDevices!()
+
+        expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.AUDIO_GET_DEVICES, undefined)
+        expect(result).toEqual(fakeDevices)
+      })
+
+      it('subscribes to AUDIO_STATE_CHANGED and unsubscribes cleanly', () => {
+        const callback = vi.fn()
+        const unsubscribe = auraApi.onAudioStateChanged!(callback)
+
+        expect(mockOn).toHaveBeenCalledWith(IPC_CHANNELS.AUDIO_STATE_CHANGED, expect.any(Function))
+        const registeredHandler = mockOn.mock.calls.find(
+          (call) => call[0] === IPC_CHANNELS.AUDIO_STATE_CHANGED
+        )?.[1]
+
+        const fakeState = {
+          mic: { enabled: false, status: 'idle' },
+          system: { enabled: false, status: 'idle' }
+        }
+        registeredHandler({}, fakeState)
+        expect(callback).toHaveBeenCalledWith(fakeState)
+
+        unsubscribe()
+        expect(mockRemoveListener).toHaveBeenCalledWith(
+          IPC_CHANNELS.AUDIO_STATE_CHANGED,
+          registeredHandler
+        )
       })
     })
 
