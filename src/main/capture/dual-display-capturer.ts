@@ -1,5 +1,5 @@
-import type { CapturedFrame, ScreenCapturePort } from '../../shared/contracts/capture'
-import type { DisplayConfiguration, DisplayInfo, SessionStatus } from '../../shared/contracts/channels'
+import type { CapturedFrame, ScreenCapturePort } from '@/shared/contracts/capture'
+import type { DisplayConfiguration, DisplayInfo, SessionStatus } from '@/shared/contracts/channels'
 import { selectDualDisplayIds } from './dual-display-selection'
 
 /** Narrow dependency: no Electron session, window, or pixels are created by this coordinator. */
