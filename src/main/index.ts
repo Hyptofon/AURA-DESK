@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
@@ -8,11 +8,17 @@ import { SingleDisplayCapturer } from './capture/single-display-capturer'
 import { createDualDisplayCapturer } from './capture/dual-capture-factory'
 import type { DualDisplayCapturer } from './capture/dual-display-capturer'
 import { applyContentProtection } from './capture/overlay-exclusion'
+import { IntegratedAudioSupervisor } from './capture/integrated-audio-supervisor'
+import { MicrophoneCapturer } from './capture/microphone-capturer'
+import { ElectronMicrophoneBackend } from './capture/electron-microphone-backend'
+import { SystemLoopbackCapturer } from './capture/system-loopback-capturer'
+import { ElectronLoopbackBackend } from './capture/electron-loopback-backend'
 
 let mainWindow: BrowserWindow | null = null
 let displayManager: DisplayManager | null = null
 let singleDisplayCapturer: SingleDisplayCapturer | null = null
 let dualDisplayCapturer: DualDisplayCapturer | null = null
+let audioSupervisor: IntegratedAudioSupervisor | null = null
 
 function createWindow(): void {
   const isDev = Boolean(!app.isPackaged && process.env['ELECTRON_RENDERER_URL'])
@@ -67,6 +73,13 @@ function createWindow(): void {
   singleDisplayCapturer = new SingleDisplayCapturer(displayManager)
   dualDisplayCapturer = createDualDisplayCapturer(displayManager)
 
+  const micBackend = new ElectronMicrophoneBackend()
+  const micCapturer = new MicrophoneCapturer(micBackend)
+  const loopbackSession = session.fromPartition('in-memory:aura-audio-loopback', { cache: false })
+  const loopbackBackend = new ElectronLoopbackBackend({ session: loopbackSession })
+  const loopbackCapturer = new SystemLoopbackCapturer(loopbackBackend)
+  audioSupervisor = new IntegratedAudioSupervisor(micCapturer, loopbackCapturer)
+
   // Register typed IPC handlers bound to authorized window and top frame
   registerIpcHandlers(
     undefined,
@@ -82,7 +95,8 @@ function createWindow(): void {
     },
     displayManager,
     singleDisplayCapturer,
-    dualDisplayCapturer
+    dualDisplayCapturer,
+    audioSupervisor
   )
 
   // Forward validated display hotplug and metrics events to authorized window
@@ -91,6 +105,10 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     unsubscribeDisplays()
     unregisterIpcHandlers()
+    if (audioSupervisor) {
+      void audioSupervisor.stopAll()
+      audioSupervisor = null
+    }
     if (singleDisplayCapturer) {
       void singleDisplayCapturer.stop()
       singleDisplayCapturer = null

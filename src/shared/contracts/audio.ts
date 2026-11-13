@@ -59,3 +59,26 @@ export interface AudioBufferOptions {
   maxBytes: number
   ttlMs: number
 }
+
+export interface AudioConfig {
+  mic: boolean
+  system: boolean
+  micDeviceId?: string
+}
+
+export interface AudioSourceState {
+  enabled: boolean
+  status: AudioCaptureStatus
+  bufferStats: AudioBufferStats
+  errorMessage?: string | null
+}
+
+export interface MicSourceState extends AudioSourceState {
+  deviceId: string | null
+  vad: VadStatus
+}
+
+export interface AudioSessionState {
+  mic: MicSourceState
+  system: AudioSourceState
+}
