@@ -1,4 +1,4 @@
-import type { DisplayBounds } from '../../shared/contracts/channels'
+import type { DisplayBounds } from '@/shared/contracts/channels'
 
 export interface BrowserWindowLike {
   isDestroyed?(): boolean
