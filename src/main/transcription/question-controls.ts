@@ -78,8 +78,25 @@ export class QuestionControls {
     }
 
     const normalized = this.normalizeText(candidate.text)
+    if (normalized.length === 0) {
+      return {
+        accepted: false,
+        reason: 'low_confidence',
+        candidate: { ...candidate, status: 'filtered' }
+      }
+    }
 
-    // 2. Check cooldown and deduplication history
+    // 2. Check pending candidate duplicate (prevents cross-source duplicate from hijacking debounce)
+    if (this.pendingCandidate && this.normalizeText(this.pendingCandidate.text) === normalized) {
+      const isCrossSource = this.pendingCandidate.source !== candidate.source
+      return {
+        accepted: false,
+        reason: isCrossSource ? 'cross_source_duplicate' : 'cooldown_active',
+        candidate: { ...candidate, status: 'filtered' }
+      }
+    }
+
+    // 3. Check cooldown and deduplication history
     // Expire entries older than cooldownMs
     this.history = this.history.filter((entry) => now - entry.timestamp < this.cooldownMs)
 
@@ -168,6 +185,7 @@ export class QuestionControls {
     candidate: QuestionCandidate,
     onReady: (readyCandidate: QuestionCandidate) => void
   ): void {
+    this.pendingCandidate = null
     const now = this.clock()
     const readyCandidate: QuestionCandidate = {
       ...candidate,
