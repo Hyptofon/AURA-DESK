@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 35 suites, 469 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 38 suites, 525 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
 - [ ] Product acceptance criteria verified.
 
@@ -17,6 +17,12 @@
 
 ## Verified deliverables
 
+- M3 Skeptic Review & Architectural Hardening (COMPLETED & VERIFIED):
+  * Identified and fixed IPC event registration order bug where `activeTranscriptionPipeline` was assigned after the `if (webContents?.send)` subscription block, preventing `TRANSCRIPTION_STATE_CHANGED` events from being forwarded to the renderer.
+  * Corrected `SpeechWindowAssembler` memory corruption and potential `RangeError` on unaligned audio chunk offsets by replacing `Buffer.prototype.slice()` with an aligned `ArrayBuffer.slice()`.
+  * Implemented a bounded queue (maximum 1 pending speech window) in `TranscriptionPipeline` so overlapping speech windows arriving while STT inference is in-flight are buffered and processed rather than silently dropped, with cancellation on stop/pause.
+  * Hardened heuristic `QuestionDetector` by enforcing start-of-clause request pattern boundaries with conversational/polite preamble recognition (`UK_REQUEST_PREAMBLES`, `EN_REQUEST_PREAMBLES`), eliminating redundant/colliding Ukrainian patterns, and adding English auxiliary question openers (`is this`, `does it`, `are you`, etc.) to reject declarative sentences containing request patterns in subordinate clauses.
+  * Total suite: 38 test suites, 525 tests passing green (9 new regression tests added).
 - M3 Adversarial Self-Review & Robustness Fixes (COMPLETED & VERIFIED):
   * Identified and fixed dynamic VAD evaluation in IPC audio chunk ingestion (`AUDIO_SUBMIT_CHUNK`), resolving critical live-audio speech detection bypass.
   * Corrected Python Whisper fallback output file resolution (`<runId>.txt`), safe taskkill child process error handling, and stdout banner filtering (`src/main/transcription/whisper-cpp-provider.ts`).
