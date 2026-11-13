@@ -25,13 +25,25 @@ const UK_INTERROGATIVE_WORDS = [
   'звідки'
 ]
 
+const UK_CONVERSATIONAL_PREFIXES = ['а', 'і', 'та', 'ну', 'от', 'тож']
+
 const UK_REQUEST_PATTERNS = [
   'можеш пояснити',
+  'можете пояснити',
+  'чи можеш',
+  'чи можете',
   'підкажи',
+  'підкажіть',
   'поясни',
+  'поясніть',
   'розкажи',
+  'розкажіть',
   'допоможи',
-  'як зробити'
+  'допоможіть',
+  'як зробити',
+  'як це зробити',
+  'скажи',
+  'скажіть'
 ]
 
 const EN_INTERROGATIVE_WORDS = [
@@ -46,10 +58,14 @@ const EN_INTERROGATIVE_WORDS = [
   'whom'
 ]
 
+const EN_CONVERSATIONAL_PREFIXES = ['and', 'so', 'well', 'now', 'then', 'but']
+
 const EN_REQUEST_PATTERNS = [
   'can you',
   'could you',
   'would you',
+  'can someone',
+  'could anyone',
   'is there',
   'are there',
   'do you',
@@ -57,7 +73,9 @@ const EN_REQUEST_PATTERNS = [
   'did you',
   'will this',
   'should we',
-  'explain this'
+  'explain this',
+  'please explain',
+  'tell me'
 ]
 
 export interface DetectionResult {
@@ -84,9 +102,13 @@ export function detectQuestionInText(text: string): DetectionResult {
   const lower = trimmed.toLowerCase()
   const hasQuestionMark = trimmed.endsWith('?') || trimmed.includes('?')
 
-  // Normalize tokens
-  const words = lower.replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, ' ').split(/\s+/).filter(Boolean)
+  // Normalize tokens: strip quotes, brackets, and punctuation safely
+  const words = lower
+    .replace(/["'«»“”„’`?.,/#!$%^&*;:{}=\-_~()]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
   const firstWord = words[0] || ''
+  const secondWord = words[1] || ''
 
   // 1. Ukrainian detection
   if (language === 'uk' || language === 'unknown') {
@@ -96,6 +118,15 @@ export function detectQuestionInText(text: string): DetectionResult {
         confidence: hasQuestionMark ? 0.95 : 0.85,
         language: 'uk',
         matchedPattern: firstWord
+      }
+    }
+
+    if (UK_CONVERSATIONAL_PREFIXES.includes(firstWord) && UK_INTERROGATIVE_WORDS.includes(secondWord)) {
+      return {
+        isQuestion: true,
+        confidence: hasQuestionMark ? 0.95 : 0.85,
+        language: 'uk',
+        matchedPattern: `${firstWord} ${secondWord}`
       }
     }
 
@@ -119,6 +150,15 @@ export function detectQuestionInText(text: string): DetectionResult {
         confidence: hasQuestionMark ? 0.95 : 0.85,
         language: 'en',
         matchedPattern: firstWord
+      }
+    }
+
+    if (EN_CONVERSATIONAL_PREFIXES.includes(firstWord) && EN_INTERROGATIVE_WORDS.includes(secondWord)) {
+      return {
+        isQuestion: true,
+        confidence: hasQuestionMark ? 0.95 : 0.85,
+        language: 'en',
+        matchedPattern: `${firstWord} ${secondWord}`
       }
     }
 

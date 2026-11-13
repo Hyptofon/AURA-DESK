@@ -26,6 +26,7 @@ export class SpeechWindowAssembler {
   private hasDetectedSpeech = false
   private accumulatedSpeechMs = 0
   private trailingSilenceMs = 0
+  private totalDurationMs = 0
 
   constructor(source: AudioSourceKind, options: SpeechWindowOptions = {}) {
     this.source = source
@@ -38,18 +39,34 @@ export class SpeechWindowAssembler {
    * Ingests an audio chunk and returns an assembled AudioPcmBuffer when an utterance is ready.
    */
   public ingest(chunk: AudioChunk): AudioPcmBuffer | null {
-    if (chunk.source !== this.source) {
+    if (
+      chunk.source !== this.source ||
+      !chunk.data ||
+      chunk.data.byteLength === 0 ||
+      chunk.durationMs <= 0
+    ) {
       return null
+    }
+
+    // Guard against dynamic hardware sample rate / channels change during accumulation
+    if (
+      this.accumulatedChunks.length > 0 &&
+      (chunk.sampleRate !== this.accumulatedChunks[0].sampleRate ||
+        chunk.channels !== this.accumulatedChunks[0].channels)
+    ) {
+      this.reset()
     }
 
     if (chunk.isSpeech) {
       this.hasDetectedSpeech = true
       this.accumulatedSpeechMs += chunk.durationMs
       this.trailingSilenceMs = 0
+      this.totalDurationMs += chunk.durationMs
       this.accumulatedChunks.push(chunk)
     } else if (this.hasDetectedSpeech) {
       // Trailing silence after active speech
       this.trailingSilenceMs += chunk.durationMs
+      this.totalDurationMs += chunk.durationMs
       this.accumulatedChunks.push(chunk)
 
       // End of speech utterance reached
@@ -63,8 +80,7 @@ export class SpeechWindowAssembler {
     }
 
     // Force flush if window duration limit reached
-    const totalDuration = this.getTotalDurationMs()
-    if (totalDuration >= this.maxWindowDurationMs) {
+    if (this.totalDurationMs >= this.maxWindowDurationMs) {
       if (this.accumulatedSpeechMs >= this.minSpeechDurationMs) {
         return this.finalizeBuffer()
       }
@@ -94,14 +110,15 @@ export class SpeechWindowAssembler {
     this.hasDetectedSpeech = false
     this.accumulatedSpeechMs = 0
     this.trailingSilenceMs = 0
+    this.totalDurationMs = 0
   }
 
   public getAccumulatedSpeechDurationMs(): number {
     return this.accumulatedSpeechMs
   }
 
-  private getTotalDurationMs(): number {
-    return this.accumulatedChunks.reduce((acc, c) => acc + c.durationMs, 0)
+  public getTotalDurationMs(): number {
+    return this.totalDurationMs
   }
 
   private finalizeBuffer(): AudioPcmBuffer {

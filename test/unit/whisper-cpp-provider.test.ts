@@ -188,4 +188,40 @@ describe('WhisperCppSttProvider', () => {
     const audio = createSyntheticAudioBuffer()
     await expect(provider.transcribe({ audio })).rejects.toThrow(/disposed/)
   })
+
+  it('reads python whisper output from basename txt and filters stdout banners', async () => {
+    const provider = new WhisperCppSttProvider({
+      executablePath: undefined,
+      modelPath: undefined,
+      pythonFallback: true,
+      processSpawner: mockSpawner,
+      tempDir: testTempDir
+    })
+
+    const audio = createSyntheticAudioBuffer()
+    const promise = provider.transcribe({ audio, language: 'en' })
+
+    await new Promise((r) => setTimeout(r, 25))
+
+    expect(mockSpawner).toHaveBeenCalledTimes(1)
+    const [cmd, args] = mockSpawner.mock.calls[0]
+    expect(cmd).toBe('py')
+    expect(args).toContain('whisper')
+
+    // Find the generated WAV file name to simulate python whisper creating <basename>.txt
+    const wavFiles = fs.readdirSync(testTempDir).filter((f) => f.endsWith('.wav'))
+    expect(wavFiles.length).toBe(1)
+    const baseName = path.parse(wavFiles[0]).name
+    const pythonTxt = path.join(testTempDir, `${baseName}.txt`)
+    fs.writeFileSync(pythonTxt, 'What does this function do?')
+
+    mockChild.stdout.emit('data', Buffer.from('Detecting language using first 30s\n100%|██████████| 156/156\n'))
+    mockChild.emit('close', 0)
+
+    const result = await promise
+    expect(result.text).toBe('What does this function do?')
+
+    // Verify pythonTxt was cleaned up
+    expect(fs.existsSync(pythonTxt)).toBe(false)
+  })
 })

@@ -36,6 +36,8 @@ export class TranscriptionPipeline {
   private segments: TranscriptSegment[] = []
   private questions: QuestionCandidate[] = []
   private isTranscribing = false
+  private isPaused = false
+  private sessionGeneration = 0
   private currentAbortController: AbortController | null = null
 
   private stateSubscribers = new Set<(state: TranscriptionSessionState) => void>()
@@ -52,6 +54,10 @@ export class TranscriptionPipeline {
   }
 
   public async ingestChunk(chunk: AudioChunk): Promise<void> {
+    if (this.isPaused) {
+      return
+    }
+
     const assembler = chunk.source === 'mic' ? this.micAssembler : this.systemAssembler
     const window = assembler.ingest(chunk)
 
@@ -84,7 +90,13 @@ export class TranscriptionPipeline {
     }
   }
 
-  public stop(): void {
+  /**
+   * Pauses transcription pipeline. Drops incoming chunks, cancels debounce timers,
+   * and aborts any active in-flight STT inference immediately.
+   */
+  public pause(): void {
+    this.isPaused = true
+    this.sessionGeneration++
     this.micAssembler.reset()
     this.systemAssembler.reset()
     this.questionControls.cancel()
@@ -98,36 +110,73 @@ export class TranscriptionPipeline {
     this.notifyStateChanged()
   }
 
-  public dispose(): void {
-    this.stop()
+  /**
+   * Resumes transcription pipeline from paused state.
+   */
+  public resume(): void {
+    this.isPaused = false
+    this.sessionGeneration++
+    this.notifyStateChanged()
+  }
+
+  public stop(): void {
+    this.isPaused = false
+    this.sessionGeneration++
+    this.micAssembler.reset()
+    this.systemAssembler.reset()
+    this.questionControls.cancel()
     this.questionControls.reset()
-    this.stateSubscribers.clear()
-    this.questionSubscribers.clear()
     this.segments = []
     this.questions = []
+
+    if (this.currentAbortController) {
+      this.currentAbortController.abort()
+      this.currentAbortController = null
+    }
+
+    this.isTranscribing = false
+    this.notifyStateChanged()
+  }
+
+  public dispose(): void {
+    this.stop()
+    this.stateSubscribers.clear()
+    this.questionSubscribers.clear()
     if (this.provider.dispose) {
       void this.provider.dispose()
     }
   }
 
   private async processAudioWindow(window: NonNullable<ReturnType<SpeechWindowAssembler['ingest']>>): Promise<void> {
-    if (this.isTranscribing) {
-      // Avoid concurrency explosion; drop or skip overlapping in-flight window
+    if (this.isTranscribing || this.isPaused) {
+      // Avoid concurrency explosion; drop overlapping in-flight window
       return
     }
 
+    const currentGen = this.sessionGeneration
+    const abortController = new AbortController()
+    this.currentAbortController = abortController
     this.isTranscribing = true
-    this.currentAbortController = new AbortController()
     this.notifyStateChanged()
 
     try {
       const result = await this.provider.transcribe({
         audio: window,
-        signal: this.currentAbortController.signal
+        signal: abortController.signal
       })
 
-      if (result.text && result.text.length > 0) {
-        const segments = result.segments && result.segments.length > 0
+      // Stale generation check: discard if session stopped or paused during inference
+      if (
+        this.sessionGeneration !== currentGen ||
+        abortController.signal.aborted ||
+        this.isPaused
+      ) {
+        return
+      }
+
+      const trimmedText = result.text?.trim()
+      if (trimmedText && trimmedText.length > 0) {
+        const rawSegments = result.segments && result.segments.length > 0
           ? result.segments
           : [
               {
@@ -135,14 +184,16 @@ export class TranscriptionPipeline {
                 source: window.source,
                 startTimestamp: window.startTimestamp,
                 endTimestamp: window.endTimestamp,
-                text: result.text,
+                text: trimmedText,
                 language: result.language,
                 confidence: result.confidence,
                 isFinal: true
               }
             ]
 
-        for (const segment of segments) {
+        const validSegments = rawSegments.filter((s) => s.text && s.text.trim().length > 0)
+
+        for (const segment of validSegments) {
           this.addSegment(segment)
 
           const questionCandidate = evaluateSegmentForQuestion(segment)
@@ -150,23 +201,30 @@ export class TranscriptionPipeline {
             this.questionControls.submitCandidate(
               questionCandidate,
               (readyCandidate) => {
-                this.addQuestion(readyCandidate)
-                this.notifyStateChanged()
+                if (this.sessionGeneration === currentGen && !this.isPaused) {
+                  this.addQuestion(readyCandidate)
+                  this.notifyStateChanged()
+                }
               }
             )
           }
         }
       }
     } catch (err) {
-      // Abort is expected during stop/pause
-      if (err instanceof Error && err.message.includes('aborted')) {
+      if (
+        abortController.signal.aborted ||
+        this.sessionGeneration !== currentGen ||
+        (err instanceof Error && (err.name === 'AbortError' || err.message.toLowerCase().includes('abort')))
+      ) {
         return
       }
       console.error('Transcription inference error:', err)
     } finally {
-      this.isTranscribing = false
-      this.currentAbortController = null
-      this.notifyStateChanged()
+      if (this.sessionGeneration === currentGen) {
+        this.isTranscribing = false
+        this.currentAbortController = null
+        this.notifyStateChanged()
+      }
     }
   }
 

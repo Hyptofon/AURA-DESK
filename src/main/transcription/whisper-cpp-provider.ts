@@ -82,6 +82,7 @@ export class WhisperCppSttProvider implements SpeechToTextProvider {
     const tempWavPath = path.join(this.tempDir, `${runId}.wav`)
     const tempOutputBase = path.join(this.tempDir, `${runId}-out`)
     const tempTxtPath = `${tempOutputBase}.txt`
+    const pythonTxtPath = path.join(this.tempDir, `${runId}.txt`)
 
     try {
       await fs.promises.writeFile(tempWavPath, wavBuffer)
@@ -96,6 +97,8 @@ export class WhisperCppSttProvider implements SpeechToTextProvider {
       let recognizedText = ''
       if (fs.existsSync(tempTxtPath)) {
         recognizedText = await fs.promises.readFile(tempTxtPath, 'utf8')
+      } else if (fs.existsSync(pythonTxtPath)) {
+        recognizedText = await fs.promises.readFile(pythonTxtPath, 'utf8')
       } else {
         recognizedText = rawOutput
       }
@@ -127,10 +130,18 @@ export class WhisperCppSttProvider implements SpeechToTextProvider {
       this.isTranscribing = false
       this.currentChild = null
 
-      // Guaranteed ephemeral cleanup: delete audio and transcript files immediately
+      // Guaranteed ephemeral cleanup: delete audio and all transcript formats immediately
       this.safeUnlink(tempWavPath)
       this.safeUnlink(tempTxtPath)
+      this.safeUnlink(pythonTxtPath)
       this.safeUnlink(`${tempOutputBase}.json`)
+      this.safeUnlink(`${tempOutputBase}.tsv`)
+      this.safeUnlink(`${tempOutputBase}.vtt`)
+      this.safeUnlink(`${tempOutputBase}.srt`)
+      this.safeUnlink(path.join(this.tempDir, `${runId}.json`))
+      this.safeUnlink(path.join(this.tempDir, `${runId}.tsv`))
+      this.safeUnlink(path.join(this.tempDir, `${runId}.vtt`))
+      this.safeUnlink(path.join(this.tempDir, `${runId}.srt`))
     }
   }
 
@@ -282,7 +293,14 @@ export class WhisperCppSttProvider implements SpeechToTextProvider {
     try {
       if (process.platform === 'win32' && child.pid) {
         // Taskkill ensures the full process tree is terminated on Windows
-        spawn('taskkill', ['/pid', String(child.pid), '/f', '/t'], { windowsHide: true })
+        const killer = spawn('taskkill', ['/pid', String(child.pid), '/f', '/t'], { windowsHide: true })
+        killer.on('error', () => {
+          try {
+            child.kill('SIGTERM')
+          } catch {
+            // Ignored
+          }
+        })
       } else {
         child.kill('SIGTERM')
       }
@@ -293,8 +311,22 @@ export class WhisperCppSttProvider implements SpeechToTextProvider {
 
   private cleanTranscriptOutput(raw: string): string {
     return raw
-      .replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]/g, '')
-      .replace(/\r?\n/g, ' ')
+      .split(/\r?\n/)
+      .map((line) =>
+        line
+          .replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]/g, '')
+          .replace(/\[\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}\.\d{3}\]/g, '')
+          .trim()
+      )
+      .filter((line) => {
+        if (!line) return false
+        if (/^\[\d{2}:\d{2}/.test(line)) return false
+        if (/whisper_/i.test(line)) return false
+        if (/detecting language/i.test(line)) return false
+        if (/^[\d%|█ -]+$/.test(line)) return false
+        return true
+      })
+      .join(' ')
       .trim()
   }
 

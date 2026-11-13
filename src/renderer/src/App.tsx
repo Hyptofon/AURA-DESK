@@ -339,6 +339,7 @@ export function App(): React.JSX.Element {
 
     if (!teardownFailed) {
       setSessionStatus('idle')
+      setTranscriptionState(null)
     }
   }, [])
 

@@ -614,4 +614,53 @@ describe('<App /> Component', () => {
     expect(screen.getByTestId('question-confidence')).toHaveTextContent('90%')
     expect(screen.getByTestId('question-text')).toHaveTextContent('Що таке антигравітація?')
   })
+
+  it('flushes transcription state on stopSession', async () => {
+    window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))
+    window.api.stopSession = vi.fn(async () => ({ success: true, status: 'idle' as const }))
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    // Populate transcription state
+    await act(async () => {
+      transcriptionListener?.({
+        latestSegment: {
+          id: 'seg-101',
+          source: 'mic',
+          startTimestamp: 1700000000000,
+          endTimestamp: 1700000003000,
+          text: 'Що таке антигравітація?',
+          language: 'uk',
+          confidence: 0.95,
+          isFinal: true
+        },
+        latestQuestion: {
+          id: 'q-101',
+          segmentId: 'seg-101',
+          source: 'mic',
+          timestamp: 1700000003000,
+          text: 'Що таке антигравітація?',
+          language: 'uk',
+          confidence: 0.9,
+          status: 'detected'
+        },
+        segmentCount: 1,
+        questionCount: 1,
+        isTranscribing: false
+      })
+    })
+
+    expect(screen.getByTestId('transcript-text')).toHaveTextContent('Що таке антигравітація?')
+
+    const stopBtn = screen.getByRole('button', { name: /Зупинити/i })
+    await act(async () => {
+      fireEvent.click(stopBtn)
+    })
+
+    expect(window.api.stopSession).toHaveBeenCalled()
+    expect(screen.getByTestId('transcript-empty')).toHaveTextContent('Очікування мовлення...')
+    expect(screen.getByTestId('question-empty')).toHaveTextContent('Питань не виявлено')
+  })
 })

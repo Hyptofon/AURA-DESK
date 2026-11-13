@@ -39,6 +39,8 @@ export interface AuraApi {
     durationMs: number
     sampleRate?: number
     channels?: number
+    isSpeech?: boolean
+    rms?: number
   }): Promise<{ accepted: boolean }>
   getTranscriptionState?(): Promise<TranscriptionSessionState>
   onTranscriptionStateChanged?(
@@ -131,6 +133,8 @@ export const auraApi: AuraApi = {
     durationMs: number
     sampleRate?: number
     channels?: number
+    isSpeech?: boolean
+    rms?: number
   }) =>
     invokeChannel<{ accepted: boolean }>(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, chunk),
   getTranscriptionState: () =>
