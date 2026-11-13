@@ -249,4 +249,49 @@ describe('QuestionControls — Debounce, Confidence, Cooldown, and Cancellation'
     controls.submitCandidate(createCandidate({ text: 'Q4' }), onReady)
     expect(controls.getHistorySize()).toBe(3)
   })
+
+  it('rejects cross-source duplicate while original candidate is pending in debounce', () => {
+    vi.useFakeTimers()
+    try {
+      const clock = () => currentTime
+      const controls = new QuestionControls({
+        debounceMs: 1000,
+        clock
+      })
+
+      const onReady = vi.fn()
+      const onFiltered = vi.fn()
+
+      const qSystem = createCandidate({
+        source: 'system',
+        text: 'What does this function do?'
+      })
+      const qMic = createCandidate({
+        source: 'mic',
+        text: 'What does this function do?'
+      })
+
+      controls.submitCandidate(qSystem, onReady, onFiltered)
+      expect(controls.hasPending()).toBe(true)
+
+      // Cross-source duplicate arrives while qSystem is debouncing
+      currentTime += 200
+      controls.submitCandidate(qMic, onReady, onFiltered)
+
+      expect(onFiltered).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'filtered' }),
+        'cross_source_duplicate'
+      )
+
+      // Advance timer past debounce delay: only the original system candidate emits
+      vi.advanceTimersByTime(1000)
+
+      expect(onReady).toHaveBeenCalledTimes(1)
+      expect(onReady).toHaveBeenCalledWith(
+        expect.objectContaining({ source: 'system', text: 'What does this function do?' })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
