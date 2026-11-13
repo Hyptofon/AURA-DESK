@@ -31,6 +31,16 @@ describe('WhisperCppSttProvider', () => {
     fs.writeFileSync(mockModelPath, 'mock-model')
   })
 
+  async function waitForSpawner(spawner: ReturnType<typeof vi.fn>, timeoutMs = 3000): Promise<void> {
+    const start = Date.now()
+    while (spawner.mock.calls.length === 0) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error('Timed out waiting for processSpawner to be invoked')
+      }
+      await new Promise((r) => setTimeout(r, 5))
+    }
+  }
+
   afterEach(() => {
     try {
       fs.rmSync(testTempDir, { recursive: true, force: true })
@@ -55,8 +65,7 @@ describe('WhisperCppSttProvider', () => {
 
     const promise = provider.transcribe({ audio, language: 'uk' })
 
-    // Allow async writeFile to complete and spawner to be invoked
-    await new Promise((r) => setTimeout(r, 25))
+    await waitForSpawner(mockSpawner)
 
     expect(mockSpawner).toHaveBeenCalledTimes(1)
     const [cmd, args] = mockSpawner.mock.calls[0]
@@ -93,7 +102,7 @@ describe('WhisperCppSttProvider', () => {
     const audio = createSyntheticAudioBuffer()
     const promise = provider.transcribe({ audio })
 
-    await new Promise((r) => setTimeout(r, 25))
+    await waitForSpawner(mockSpawner)
 
     mockChild.stdout.emit('data', Buffer.from('Done.'))
     mockChild.emit('close', 0)
@@ -117,7 +126,7 @@ describe('WhisperCppSttProvider', () => {
 
     const promise = provider.transcribe({ audio, signal: controller.signal })
 
-    await new Promise((r) => setTimeout(r, 25))
+    await waitForSpawner(mockSpawner)
 
     // Trigger abort while in-flight
     controller.abort()
@@ -139,7 +148,7 @@ describe('WhisperCppSttProvider', () => {
     // Immediate second call should be rejected
     await expect(provider.transcribe({ audio })).rejects.toThrow(/STT engine is busy/)
 
-    await new Promise((r) => setTimeout(r, 25))
+    await waitForSpawner(mockSpawner)
 
     mockChild.stdout.emit('data', Buffer.from('Done'))
     mockChild.emit('close', 0)
@@ -157,7 +166,7 @@ describe('WhisperCppSttProvider', () => {
     const audio = createSyntheticAudioBuffer()
     const promise = provider.transcribe({ audio })
 
-    await new Promise((r) => setTimeout(r, 25))
+    await waitForSpawner(mockSpawner)
 
     mockChild.stderr.emit('data', Buffer.from('CUDA out of memory'))
     mockChild.emit('close', 1)
@@ -201,7 +210,7 @@ describe('WhisperCppSttProvider', () => {
     const audio = createSyntheticAudioBuffer()
     const promise = provider.transcribe({ audio, language: 'en' })
 
-    await new Promise((r) => setTimeout(r, 25))
+    await waitForSpawner(mockSpawner)
 
     expect(mockSpawner).toHaveBeenCalledTimes(1)
     const [cmd, args] = mockSpawner.mock.calls[0]
