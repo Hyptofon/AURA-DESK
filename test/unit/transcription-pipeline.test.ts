@@ -194,6 +194,99 @@ describe('TranscriptionPipeline', () => {
     await ingestPromise
     const state = pipeline.getState()
     expect(state.isTranscribing).toBe(false)
+    expect(state.segmentCount).toBe(0)
+    expect(state.questionCount).toBe(0)
+  })
+
+  it('pauses and resumes transcription lifecycle, dropping audio chunks while paused', async () => {
+    const fakeProvider = new FakeSttProvider({
+      defaultText: 'Speech during paused state'
+    })
+    const pipeline = new TranscriptionPipeline({
+      provider: fakeProvider,
+      windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+      controlsOptions: { debounceMs: 0 }
+    })
+
+    pipeline.pause()
+
+    // Ingest chunks while paused
+    await pipeline.ingestChunk(makeChunk('mic', 1000, 100, true))
+    await pipeline.ingestChunk(makeChunk('mic', 1100, 50, false))
+
+    expect(pipeline.getState().segmentCount).toBe(0)
+    expect(fakeProvider.transcribeCallCount).toBe(0)
+
+    // Resume pipeline
+    pipeline.resume()
+
+    // Ingest chunks after resume
+    await pipeline.ingestChunk(makeChunk('mic', 2000, 100, true))
+    await pipeline.ingestChunk(makeChunk('mic', 2100, 50, false))
+
+    expect(pipeline.getState().segmentCount).toBe(1)
+    expect(fakeProvider.transcribeCallCount).toBe(1)
+  })
+
+  it('drops late inference result if provider completes after stop()', async () => {
+    // Custom provider that ignores abort signal and resolves late
+    let resolveInference!: () => void
+    const slowProvider = {
+      id: 'slow-stt',
+      name: 'Slow STT Provider',
+      transcribe: vi.fn().mockImplementation(() => {
+        return new Promise((resolve) => {
+          resolveInference = () =>
+            resolve({
+              text: 'Late question after stop?',
+              language: 'uk',
+              confidence: 0.9,
+              durationMs: 1000
+            })
+        })
+      })
+    }
+
+    const pipeline = new TranscriptionPipeline({
+      provider: slowProvider,
+      windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+      controlsOptions: { debounceMs: 0 }
+    })
+
+    const ingestPromise = (async () => {
+      await pipeline.ingestChunk(makeChunk('mic', 1000, 100, true))
+      await pipeline.ingestChunk(makeChunk('mic', 1100, 50, false))
+    })()
+
+    await new Promise((r) => setTimeout(r, 20))
+    expect(pipeline.getState().isTranscribing).toBe(true)
+
+    // Session stops
+    pipeline.stop()
+    expect(pipeline.getState().segmentCount).toBe(0)
+
+    // STT resolves after stop()
+    resolveInference()
+    await ingestPromise
+
+    // Late result MUST NOT be stored
+    expect(pipeline.getState().segmentCount).toBe(0)
+    expect(pipeline.getState().questionCount).toBe(0)
+  })
+
+  it('filters whitespace-only STT results without adding empty segments', async () => {
+    const fakeProvider = new FakeSttProvider({
+      defaultText: '   \n\t  '
+    })
+    const pipeline = new TranscriptionPipeline({
+      provider: fakeProvider,
+      windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 }
+    })
+
+    await pipeline.ingestChunk(makeChunk('mic', 1000, 100, true))
+    await pipeline.ingestChunk(makeChunk('mic', 1100, 50, false))
+
+    expect(pipeline.getState().segmentCount).toBe(0)
   })
 
   it('cleans up and removes subscribers on dispose()', () => {
