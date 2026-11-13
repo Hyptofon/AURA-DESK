@@ -25,7 +25,7 @@ describe('<App /> Component', () => {
           status: 'idle',
           deviceId: null,
           bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null },
-          vad: { isSpeech: false, energyRms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
+          vad: { isSpeech: false, rms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
         },
         system: {
           enabled: false,
@@ -36,14 +36,14 @@ describe('<App /> Component', () => {
       setAudioConfig: vi.fn(async (config) => ({
         mic: {
           enabled: Boolean(config.mic),
-          status: config.mic ? 'active' : 'idle',
+          status: (config.mic ? 'active' : 'idle') as 'active' | 'idle',
           deviceId: null,
           bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null },
-          vad: { isSpeech: false, energyRms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
+          vad: { isSpeech: false, rms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
         },
         system: {
           enabled: Boolean(config.system),
-          status: config.system ? 'active' : 'idle',
+          status: (config.system ? 'active' : 'idle') as 'active' | 'idle',
           bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null }
         }
       })),
@@ -113,7 +113,7 @@ describe('<App /> Component', () => {
           status: 'active',
           deviceId: null,
           bufferStats: { chunkCount: 1, totalBytes: 640, newestTimestamp: 1000, oldestTimestamp: 1000 },
-          vad: { isSpeech: true, energyRms: 0.05, speechDurationMs: 200, silenceDurationMs: 0 }
+          vad: { isSpeech: true, rms: 0.05, speechDurationMs: 200, silenceDurationMs: 0 }
         },
         system: {
           enabled: false,
@@ -141,7 +141,7 @@ describe('<App /> Component', () => {
           status: 'idle',
           deviceId: null,
           bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null },
-          vad: { isSpeech: false, energyRms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
+          vad: { isSpeech: false, rms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
         },
         system: {
           enabled: true,
@@ -169,7 +169,7 @@ describe('<App /> Component', () => {
           status: 'paused',
           deviceId: null,
           bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null },
-          vad: { isSpeech: false, energyRms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
+          vad: { isSpeech: false, rms: 0, speechDurationMs: 0, silenceDurationMs: 0 }
         },
         system: {
           enabled: true,
