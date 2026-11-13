@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 33 suites, 460 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 35 suites, 469 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
 - [ ] Product acceptance criteria verified.
 
@@ -17,6 +17,11 @@
 
 ## Verified deliverables
 
+- P3.2 Local whisper.cpp Real Speech-to-Text Integration (COMPLETED & VERIFIED):
+  * Implemented in-memory 16-bit PCM RIFF WAVE audio encoder (src/main/transcription/wav-encoder.ts).
+  * Implemented WhisperCppSttProvider with binary/model resolution, subprocess spawning, Windows taskkill process tree teardown, cancellation via AbortSignal, timeout safeguards, and guaranteed ephemeral WAV/TXT deletion (src/main/transcription/whisper-cpp-provider.ts).
+  * Added fallback execution to local Python whisper module for zero-compilation local inference.
+  * Added 9 unit tests across 2 new test suites (wav-encoder.test.ts [2], whisper-cpp-provider.test.ts [7]). Total suite: 35 suites, 469 tests passing green.
 - P3.1 STT Provider Contract & Audio Resampling Architecture (COMPLETED & VERIFIED):
   * Defined typed SpeechToTextProvider, AudioPcmBuffer, TranscriptionRequest, and TranscriptSegment contracts without external package dependencies (src/shared/contracts/transcription.ts).
   * Implemented anti-aliased 3:1 integer decimation (48kHz -> 16kHz) and linear interpolation resampling plus multi-channel downmixing (src/main/transcription/audio-resampler.ts).
@@ -251,7 +256,7 @@ User completed physical verification on real Windows hardware (real observations
 
 **GATE-2 Outcome:** Electron/Chromium pipeline chosen as the verified production audio architecture. .NET/NAudio helper is not required for this hardware setup and is retained only as an optional future fallback.
 
-Milestone M3: Task P3.2 (Local whisper.cpp STT Integration).
+Milestone M3: Task P3.3 (Finalized Transcript Segments & Question Candidates).
 
 ## Completed work template (fill after genuine verification)
 
