@@ -64,6 +64,7 @@ export interface AudioConfig {
   mic: boolean
   system: boolean
   micDeviceId?: string
+  paused?: boolean
 }
 
 export interface AudioSourceState {
