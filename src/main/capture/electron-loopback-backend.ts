@@ -1,4 +1,4 @@
-import type { AudioChunk } from '../../shared/contracts/audio'
+import type { AudioChunk } from '@/shared/contracts/audio'
 import type { SystemLoopbackBackend } from './system-loopback-capturer'
 
 export interface SessionWithDisplayMediaHandler {
