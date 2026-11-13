@@ -16,8 +16,8 @@ vi.mock('electron', () => ({
   }
 }))
 
-import { auraApi, exposeAuraApi } from '../../src/preload/index'
-import { IPC_CHANNELS } from '../../src/shared/contracts/channels'
+import { auraApi, exposeAuraApi } from '@/preload/index'
+import { IPC_CHANNELS } from '@/shared/contracts/channels'
 
 describe('Real Preload AuraApi and Context Isolation', () => {
   beforeEach(() => {
