@@ -13,12 +13,15 @@ import { MicrophoneCapturer } from './capture/microphone-capturer'
 import { ElectronMicrophoneBackend } from './capture/electron-microphone-backend'
 import { SystemLoopbackCapturer } from './capture/system-loopback-capturer'
 import { ElectronLoopbackBackend } from './capture/electron-loopback-backend'
+import { TranscriptionPipeline } from './transcription/transcription-pipeline'
+import { WhisperCppSttProvider } from './transcription/whisper-cpp-provider'
 
 let mainWindow: BrowserWindow | null = null
 let displayManager: DisplayManager | null = null
 let singleDisplayCapturer: SingleDisplayCapturer | null = null
 let dualDisplayCapturer: DualDisplayCapturer | null = null
 let audioSupervisor: IntegratedAudioSupervisor | null = null
+let transcriptionPipeline: TranscriptionPipeline | null = null
 
 function createWindow(): void {
   const isDev = Boolean(!app.isPackaged && process.env['ELECTRON_RENDERER_URL'])
@@ -80,6 +83,9 @@ function createWindow(): void {
   const loopbackCapturer = new SystemLoopbackCapturer(loopbackBackend)
   audioSupervisor = new IntegratedAudioSupervisor(micCapturer, loopbackCapturer)
 
+  const sttProvider = new WhisperCppSttProvider()
+  transcriptionPipeline = new TranscriptionPipeline({ provider: sttProvider })
+
   // Register typed IPC handlers bound to authorized window and top frame
   registerIpcHandlers(
     undefined,
@@ -98,7 +104,8 @@ function createWindow(): void {
     dualDisplayCapturer,
     audioSupervisor,
     micBackend,
-    loopbackBackend
+    loopbackBackend,
+    transcriptionPipeline
   )
 
   // Configure permission check and request handlers for media access in authorized main window
@@ -197,6 +204,10 @@ function createWindow(): void {
     if (audioSupervisor) {
       void audioSupervisor.stopAll()
       audioSupervisor = null
+    }
+    if (transcriptionPipeline) {
+      transcriptionPipeline.dispose()
+      transcriptionPipeline = null
     }
     if (singleDisplayCapturer) {
       void singleDisplayCapturer.stop()
