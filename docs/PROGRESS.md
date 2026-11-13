@@ -1,19 +1,19 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 COMPLETED (P1.1, P1.2, P1.3, P1.4 COMPLETED, GATE-1 CONSOLIDATED MANUAL CHECKLIST PREPARED)`.
+**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 COMPLETED, M2 COMPLETED (P2.1, P2.2, P2.3, P2.4 IMPLEMENTED & MERGED, GATE-2 CONSOLIDATED MANUAL CHECKLIST PREPARED)`.
 
 ## Summary
 
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
-- [x] Runtime code implemented (M0/P0.1 minimal shell).
-- [x] Test and lint infrastructure configured and verified green (P0.3).
-- [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug).
+- [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 30 suites, 398 tests).
+- [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines).
 - [ ] Product acceptance criteria verified.
 
 ## Current milestone
 
-**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4; Tasks P1.1, P1.2, P1.3, P1.4 completed and merged; GATE-1 consolidated manual checklist prepared; Milestone M2 authorized).
+**M2 — Audio observation spike** (Milestones M0 and M1 completed and verified; Tasks P2.1, P2.2, P2.3, P2.4 completed and merged; GATE-2 consolidated manual checklist prepared; Milestone M3 pending).
 
 ## Verified deliverables
 
@@ -75,6 +75,29 @@
   * Windows DPI Scaling Mapping (`src/main/capture/dpi-bounds.ts`): implemented `toPhysicalBounds`, `toLogicalBounds`, and `matchesDisplayBounds` mapping logical DIPs to physical pixels across 100%, 125%, 150%, and mixed-DPI dual-monitor setups with negative coordinates.
   * DPI-Aware Source Resolution (`src/main/capture/source-resolver.ts`): integrated `matchesDisplayBounds` into Strategy 2 to resolve coordinates whether Windows reports physical or logical dimensions without false-closed mismatches under DPI scaling.
   * Unit Tests: 323 tests total across 21 test suites passing green (`dpi-bounds.test.ts` [8], `overlay-exclusion.test.ts` [15], `source-resolver.test.ts` [19], etc.).
+- P2.1 Microphone Capture & Lightweight Energy VAD (COMPLETED & MERGED, PR #9):
+  * Audio Contracts (`src/shared/contracts/audio.ts`): defined `AudioChunk`, `AudioDevice`, `AudioCaptureStatus`, `VadOptions`, `VadStatus`, and `AudioBufferStats` without external package dependencies.
+  * Energy-Based VAD (`src/main/capture/audio-vad.ts`): implemented `EnergyVad` calculating real RMS on Int16 PCM samples, speech hangover window (`minSpeechDurationMs`, `silenceHoldDurationMs`), and clean reset. 11 unit tests (`audio-vad.test.ts`).
+  * Bounded Audio Ring Buffer (`src/main/capture/audio-ring-buffer.ts`): implemented `AudioRingBuffer` enforcing chunk count caps (300 chunks), byte budget caps (5 MB), and duration TTL eviction (10s) with monotonic timestamp ordering and O(1) buffer clears. 7 unit tests (`audio-ring-buffer.test.ts`).
+  * Microphone Capturer Supervisor (`src/main/capture/microphone-capturer.ts`): implemented `MicrophoneCapturer` with single source of truth for session status, generation tokens for cancellation protection, fail-closed permission denial handling, and immediate buffer flush on stop. 9 unit tests (`microphone-capturer.test.ts`).
+- P2.2 Windows System Audio Capture via Electron Loopback (COMPLETED & MERGED, PR #10):
+  * System Loopback Capturer (`src/main/capture/system-loopback-capturer.ts`): implemented `SystemLoopbackCapturer` wrapping system playback audio, integrating independent bounded ring buffer, and tagging every audio chunk with `source: 'system'`. 7 unit tests (`system-loopback-capturer.test.ts`).
+  * Electron In-Memory Loopback Backend (`src/main/capture/electron-loopback-backend.ts`): implemented `ElectronLoopbackBackend` using `session.setDisplayMediaRequestHandler` on a dedicated partition (`in-memory:aura-audio-loopback`) with `{ audio: 'loopback' }` to tap default Windows playback (speakers/headphones) without microphone contamination or external .NET DLLs. 4 unit tests (`electron-loopback-backend.test.ts`).
+- P2.3 Independent Audio Controls & Typed IPC (COMPLETED & MERGED, PR #11):
+  * Integrated Audio Supervisor (`src/main/capture/integrated-audio-supervisor.ts`): orchestrates both microphone and system loopback capturers with independent toggles (none, mic-only, system-only, both), isolated error handling (mic permission failure does not stop loopback), and monotonic source tagging. 9 unit tests (`integrated-audio-supervisor.test.ts`).
+  * Electron Microphone Backend (`src/main/capture/electron-microphone-backend.ts`): manages microphone device enumeration and chunk delivery for the main process pipeline. 4 unit tests (`electron-microphone-backend.test.ts`).
+  * Typed IPC Handlers (`src/main/ipc/register-handlers.ts`, `src/shared/contracts/channels.ts`, `src/shared/contracts/ipc.ts`): added `AUDIO_GET_STATE`, `AUDIO_SET_CONFIG`, `AUDIO_GET_DEVICES`, and `AUDIO_STATE_CHANGED` channels with strict `AudioConfigSchema` validation, fail-closed sender authentication, and state forwarder to webContents. 8 unit tests (`audio-ipc.test.ts`).
+  * Preload Bridge (`src/preload/index.ts`): exposed `getAudioState`, `setAudioConfig`, `getAudioDevices`, and `onAudioStateChanged` on `window.api`. 19 unit tests (`preload-api.test.ts`).
+- P2.4 Audio Pause/Stop Lifecycle & Privacy Indications (COMPLETED & MERGED, PR #12):
+  * Privacy Pause/Resume Discard Invariant (`src/main/capture/microphone-capturer.ts`, `src/main/capture/system-loopback-capturer.ts`, `src/main/capture/integrated-audio-supervisor.ts`): added `pause()` and `resume()` to capturers and `pauseAll()`/`resumeAll()` to supervisor; while paused, all incoming audio chunks from hardware are dropped immediately to prevent covert recording.
+  * Stop Buffer Zero-Retention Teardown (`src/main/ipc/register-handlers.ts`, `src/main/index.ts`): `SESSION_STOP` and window `closed` synchronously trigger `stopAll()` on the audio supervisor, immediately clearing all memory buffers to 0 chunks and 0 bytes.
+  * Quiet Instrument Privacy Badges (`src/renderer/src/App.tsx`): added explicit UI badges adhering to `DESIGN.md`:
+    - `MIC RECORDING` (with red status dot `#E86D70`) when mic capture is active;
+    - `SYSTEM AUDIO CAPTURED` (amber badge `#EFC278`) when system loopback capture is active;
+    - `PAUSED` / `MIC PAUSED` / `SYSTEM AUDIO PAUSED` when paused;
+    - Zero recording badges rendered when stopped or idle.
+  * Unit Tests: 7 lifecycle and privacy tests in `audio-lifecycle-privacy.test.ts` and 9 UI tests in `App.test.tsx` passing green.
+  * Full Suite Status: 30 test suites, 398 tests passing green. Zero typecheck errors, zero ESLint warnings, clean build.
 
 ### Capture Backend Architecture & Trade-Offs Analysis:
 1. **Architecture 1 — Electron `desktopCapturer` in Main process**:
@@ -133,10 +156,44 @@
    - Run `npm run dev` in PowerShell to launch the desktop application and open DevTools (`Ctrl+Shift+I`).
    - Execute: `const config = await window.api.getDisplays()` -> `await window.api.startSession({ mode: 'single', displayId: config.displays[0].id })` -> `await window.api.stopSession()`.
    - Hotplug abort check: Start session on secondary monitor (`config.displays[1].id`), disconnect/power off secondary monitor, verify immediate abort to `error` (`SELECTED_DISPLAY_LOST`) with buffer flush and no fallback to primary monitor, then call `await window.api.stopSession()` to recover to `idle`.
+3. **Consolidated Windows Audio Verification (GATE-2):**
+   - **Step 1: Launch Application:**
+     Run `npm run dev` in PowerShell. The AURA DESK Quiet Instrument window opens.
+   - **Step 2: Verify Initial Privacy State:**
+     Observe session status shows "Очікування (Сесія вимкнена)". Verify NO recording badges are displayed on screen.
+   - **Step 3: Microphone Capture & VAD Test:**
+     Check the "Мікрофон" checkbox.
+     *Observation*: The UI displays the red `MIC RECORDING` badge with status dot `#E86D70`.
+     Open DevTools (`Ctrl+Shift+I`) and run:
+     `await window.api.getAudioState()`
+     *Observation*: `mic.status === 'active'`, `mic.enabled === true`, `mic.bufferStats.chunkCount > 0`. Speak into the microphone and check `mic.vad.isSpeech === true`.
+   - **Step 4: Windows System Audio Loopback Test:**
+     Play audio in Windows (e.g., YouTube video or Spotify in headphones/speakers).
+     Check the "Системне аудіо" checkbox.
+     *Observation*: The UI displays the amber `SYSTEM AUDIO CAPTURED` badge.
+     In DevTools, run:
+     `await window.api.getAudioState()`
+     *Observation*: `system.status === 'active'`, `system.bufferStats.chunkCount > 0`, system loopback chunks are monotonically recorded.
+   - **Step 5: Independent Audio Toggles:**
+     Uncheck "Мікрофон" while keeping "Системне аудіо" checked.
+     *Observation*: `MIC RECORDING` badge disappears immediately, `SYSTEM AUDIO CAPTURED` badge remains visible.
+     Check "Мікрофон" back on, then uncheck "Системне аудіо".
+     *Observation*: `MIC RECORDING` appears, `SYSTEM AUDIO CAPTURED` disappears. Both toggles operate completely independently.
+   - **Step 6: Pause & Privacy Discard Test:**
+     With both sources enabled, click the "Пауза" button.
+     *Observation*: Badges transition to `MIC PAUSED` and `SYSTEM AUDIO PAUSED` (or `PAUSED`).
+     In DevTools, verify incoming chunks are discarded and buffer size does not grow.
+     Click "Продовжити" (Resume) -> badges return to `MIC RECORDING` and `SYSTEM AUDIO CAPTURED`.
+   - **Step 7: Stop & Buffer Zero Retention:**
+     Click the "Зупинити" button.
+     *Observation*: All recording badges disappear immediately.
+     In DevTools, run:
+     `await window.api.getAudioState()`
+     *Observation*: Both sources report `status: 'idle'`, `bufferStats.chunkCount === 0`, and `bufferStats.totalBytes === 0`. Complete zero retention verified.
 
 ## Next recommended task
 
-Milestone M2: Task P2.1 (Microphone Capture + Lightweight VAD).
+Milestone M3: Task P3.1 (Audio Transcription Engine Selection & Integration).
 
 ## Completed work template (fill after genuine verification)
 
@@ -151,7 +208,6 @@ Next task:
 
 ## Active blockers / decisions
 
-- Windows audio loopback API must be validated on target hardware (ADR-006).
 - Local vs remote transcription route to decide based on test (ADR-007).
 - Electron SQLite native adapter and OpenRouter endpoint capabilities should be verified (ADR-005/004).
 

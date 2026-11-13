@@ -15,8 +15,10 @@
 ## ADR-005: Local SQLite FTS5 first, embeddings later — PROVISIONAL
 Для персональних нотаток — мінімальна складність. Підтвердити, що обрана SQLite binding підтримує Electron packaging та Windows runtime.
 
-## ADR-006: System audio capture approach — OPEN, BLOCKS PHASE P2
-Дослідити Electron loopback на Windows із реальними навушниками/Meet/YouTube. Якщо fail — .NET/NAudio helper. Документувати в `docs/PROGRESS.md`, не робити unsupported claims.
+## ADR-006: System audio capture approach — ACCEPTED (Electron loopback first; NAudio fallback reserved)
+**Рішення:** Обрано нативний підхід Electron 28+ з ізольованою сесією `in-memory:aura-audio-loopback` та `session.setDisplayMediaRequestHandler({ audio: 'loopback' })`.
+**Переваги:** Чистий TypeScript/JS без зовнішніх бінарників, C#/.NET runtime залежностей чи сторонніх DLL; повна інтеграція з Chromium Web Audio; нульові накладні витрати на міжпроцесну серіалізацію через stdout; незалежні обмежені кільцеві буфери пам'яті (5MB / 30с).
+**Hardware fallback:** Окремий консольний помічник на C# / NAudio (WASAPI Loopback) зарезервовано виключно як апаратний fallback, якщо фізичний аудіодрайвер користувача на Windows вимагає прямого WASAPI захоплення.
 
 ## ADR-007: STT local vs remote — OPEN, BLOCKS PHASE P3
 Перевірити latency/UA+EN speech quality локально та системне навантаження. Зберегти интерфейс так, щоб поміняти provider без рефакторингу core.
