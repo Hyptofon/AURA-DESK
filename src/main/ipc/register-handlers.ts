@@ -738,7 +738,7 @@ export function registerIpcHandlers(
         durationMs,
         sampleRate: sampleRate ?? 16000,
         channels: channels ?? 1,
-        data,
+        data: Buffer.from(data.buffer, data.byteOffset, data.byteLength),
         rms: 0,
         isSpeech: false
       }
