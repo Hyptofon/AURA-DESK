@@ -15,7 +15,8 @@ export const IPC_CHANNELS = {
   AUDIO_GET_STATE: 'aura:audio-get-state',
   AUDIO_SET_CONFIG: 'aura:audio-set-config',
   AUDIO_STATE_CHANGED: 'aura:audio-state-changed',
-  AUDIO_GET_DEVICES: 'aura:audio-get-devices'
+  AUDIO_GET_DEVICES: 'aura:audio-get-devices',
+  AUDIO_SUBMIT_CHUNK: 'aura:audio-submit-chunk'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
