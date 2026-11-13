@@ -730,13 +730,17 @@ export function registerIpcHandlers(
         }
       }
 
-      const { source, data, timestamp, durationMs } = parsed.data
+      const { source, data, timestamp, durationMs, sampleRate, channels } = parsed.data
       const chunk: AudioChunk = {
         id: `chunk-${source}-${audioChunkCounter++}`,
         source,
         timestamp,
         durationMs,
-        data: Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+        sampleRate: sampleRate ?? 16000,
+        channels: channels ?? 1,
+        data,
+        rms: 0,
+        isSpeech: false
       }
 
       if (source === 'mic' && activeMicBackend) {
