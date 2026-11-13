@@ -9,13 +9,16 @@ import {
   SessionStartResponseSchema,
   SessionStopResponseSchema,
   AudioConfigSchema,
+  AudioSubmitChunkSchema,
   type CaptureSelection,
   type SessionStatus,
   type DisplayConfiguration,
   type IpcResponse
 } from '@/shared/contracts/ipc'
-import type { AudioSessionState, AudioDevice } from '@/shared/contracts/audio'
+import type { AudioSessionState, AudioDevice, AudioChunk } from '@/shared/contracts/audio'
 import type { IntegratedAudioSupervisor } from '../capture/integrated-audio-supervisor'
+import type { ElectronMicrophoneBackend } from '../capture/electron-microphone-backend'
+import type { ElectronLoopbackBackend } from '../capture/electron-loopback-backend'
 import { DisplayManager } from '../displays/display-manager'
 import type { SessionState } from '@/shared/contracts/channels'
 import { SingleDisplayCapturer } from '../capture/single-display-capturer'
@@ -210,6 +213,9 @@ let activeStatusUnsubscribe: (() => void) | null = null
 let activeDualStatusUnsubscribe: (() => void) | null = null
 let activeAudioSupervisor: IntegratedAudioSupervisor | null = null
 let activeAudioStateUnsubscribe: (() => void) | null = null
+let activeMicBackend: ElectronMicrophoneBackend | null = null
+let activeLoopbackBackend: ElectronLoopbackBackend | null = null
+let audioChunkCounter = 0
 
 export function getSingleDisplayCapturer(
   manager: DisplayManager = getDisplayManager()
@@ -235,7 +241,9 @@ export function registerIpcHandlers(
   displayManager?: DisplayManager,
   singleDisplayCapturer?: SingleDisplayCapturer,
   dualDisplayCapturer?: DualDisplayCapturer,
-  audioSupervisor?: IntegratedAudioSupervisor
+  audioSupervisor?: IntegratedAudioSupervisor,
+  micBackend?: ElectronMicrophoneBackend,
+  loopbackBackend?: ElectronLoopbackBackend
 ): void {
   if (!validatorOrContext) {
     throw new Error(
@@ -293,6 +301,9 @@ export function registerIpcHandlers(
       })
     }
   }
+
+  activeMicBackend = micBackend ?? null
+  activeLoopbackBackend = loopbackBackend ?? null
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
     const auth = validator.validate(event)
@@ -693,6 +704,53 @@ export function registerIpcHandlers(
       }
     }
   )
+
+  ipc.handle(
+    IPC_CHANNELS.AUDIO_SUBMIT_CHUNK,
+    async (event: unknown, payload: unknown): Promise<IpcResponse<{ accepted: boolean }>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      const parsed = AudioSubmitChunkSchema.safeParse(payload)
+      if (!parsed.success) {
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_AUDIO_CHUNK',
+            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+          }
+        }
+      }
+
+      const { source, data, timestamp, durationMs } = parsed.data
+      const chunk: AudioChunk = {
+        id: `chunk-${source}-${audioChunkCounter++}`,
+        source,
+        timestamp,
+        durationMs,
+        data: Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+      }
+
+      if (source === 'mic' && activeMicBackend) {
+        activeMicBackend.emitChunk(chunk)
+      } else if (source === 'system' && activeLoopbackBackend) {
+        activeLoopbackBackend.emitChunk(chunk)
+      }
+
+      return {
+        ok: true,
+        data: { accepted: true }
+      }
+    }
+  )
 }
 
 /**
@@ -712,6 +770,8 @@ export function unregisterIpcHandlers(ipc: IpcMainLike = ipcMain): void {
     activeAudioStateUnsubscribe = null
   }
   activeAudioSupervisor = null
+  activeMicBackend = null
+  activeLoopbackBackend = null
   for (const channel of Object.values(IPC_CHANNELS)) {
     try {
       ipc.removeHandler(channel)
