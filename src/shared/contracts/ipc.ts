@@ -144,3 +144,14 @@ export const CaptureStatusSchema = z
     lastError: z.string().nullable().optional()
   })
   .strict()
+
+/**
+ * Audio configuration schema for independent mic and system audio toggles.
+ */
+export const AudioConfigSchema = z
+  .object({
+    mic: z.boolean(),
+    system: z.boolean(),
+    micDeviceId: z.string().trim().min(1).optional()
+  })
+  .strict()
