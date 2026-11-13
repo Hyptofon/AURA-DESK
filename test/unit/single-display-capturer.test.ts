@@ -2,19 +2,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   SingleDisplayCapturer,
   type DesktopCapturerLike
-} from '../../src/main/capture/single-display-capturer'
+} from '@/main/capture/single-display-capturer'
 import {
   DisplayManager,
   type ScreenLike,
   type ElectronDisplayLike
-} from '../../src/main/displays/display-manager'
-import type { DesktopCapturerSourceLike } from '../../src/main/capture/source-resolver'
-import type { CaptureSelection, SessionStatus } from '../../src/shared/contracts/channels'
+} from '@/main/displays/display-manager'
+import type { DesktopCapturerSourceLike } from '@/main/capture/source-resolver'
+import type { CaptureSelection, SessionStatus } from '@/shared/contracts/channels'
 import type {
   CapturedFrame,
   CaptureTarget,
   FrameCaptureBackend
-} from '../../src/shared/contracts/capture'
+} from '@/shared/contracts/capture'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
 class MockScreenApi implements ScreenLike {
