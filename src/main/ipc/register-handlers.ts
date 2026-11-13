@@ -25,6 +25,7 @@ import { SingleDisplayCapturer } from '../capture/single-display-capturer'
 import type { DualDisplayCapturer } from '../capture/dual-display-capturer'
 import type { TranscriptionPipeline } from '../transcription/transcription-pipeline'
 import type { TranscriptionSessionState } from '@/shared/contracts/questions'
+import { EnergyVad } from '../capture/audio-vad'
 
 export interface IpcMainLike {
   handle(
@@ -220,6 +221,8 @@ let activeLoopbackBackend: ElectronLoopbackBackend | null = null
 let activeTranscriptionPipeline: TranscriptionPipeline | null = null
 let activeTranscriptionUnsubscribe: (() => void) | null = null
 let audioChunkCounter = 0
+let micVad = new EnergyVad()
+let systemVad = new EnergyVad()
 
 export function getSingleDisplayCapturer(
   manager: DisplayManager = getDisplayManager()
@@ -270,6 +273,8 @@ export function registerIpcHandlers(
   activeDualCapturer = dual
   activeAudioSupervisor = audioSupervisor ?? null
   runningMode = null
+  micVad.reset()
+  systemVad.reset()
 
   // Forward validated session status transitions from capturer to trusted window
   const webContents =
@@ -544,6 +549,8 @@ export function registerIpcHandlers(
 
       try {
         const source = runningMode === 'both' && dual ? dual : capturer
+        micVad.reset()
+        systemVad.reset()
         if (activeTranscriptionPipeline) {
           activeTranscriptionPipeline.stop()
         }
@@ -671,6 +678,13 @@ export function registerIpcHandlers(
 
       try {
         const state = await activeAudioSupervisor.setAudioConfig(parsed.data)
+        if (typeof parsed.data.paused === 'boolean' && activeTranscriptionPipeline) {
+          if (parsed.data.paused) {
+            activeTranscriptionPipeline.pause()
+          } else {
+            activeTranscriptionPipeline.resume()
+          }
+        }
         return {
           ok: true,
           data: state
@@ -752,6 +766,28 @@ export function registerIpcHandlers(
       }
 
       const { source, data, timestamp, durationMs, sampleRate, channels } = parsed.data
+      let isSpeech = parsed.data.isSpeech
+      let rms = parsed.data.rms
+
+      if (typeof isSpeech !== 'boolean' || typeof rms !== 'number') {
+        const sampleCount = Math.floor(data.byteLength / 2)
+        const int16Samples =
+          data.byteOffset % 2 === 0
+            ? new Int16Array(data.buffer, data.byteOffset, sampleCount)
+            : new Int16Array(
+                data.buffer.slice(data.byteOffset, data.byteOffset + sampleCount * 2)
+              )
+
+        const vad = source === 'mic' ? micVad : systemVad
+        const vadStatus = vad.process(int16Samples, durationMs)
+        if (typeof isSpeech !== 'boolean') {
+          isSpeech = vadStatus.isSpeech
+        }
+        if (typeof rms !== 'number') {
+          rms = vadStatus.rms
+        }
+      }
+
       const chunk: AudioChunk = {
         id: `chunk-${source}-${audioChunkCounter++}`,
         source,
@@ -760,8 +796,8 @@ export function registerIpcHandlers(
         sampleRate: sampleRate ?? 16000,
         channels: channels ?? 1,
         data: Buffer.from(data.buffer, data.byteOffset, data.byteLength),
-        rms: 0,
-        isSpeech: false
+        rms: rms ?? 0,
+        isSpeech: isSpeech ?? false
       }
 
       if (source === 'mic' && activeMicBackend) {
