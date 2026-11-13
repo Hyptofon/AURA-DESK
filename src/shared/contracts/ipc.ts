@@ -152,6 +152,7 @@ export const AudioConfigSchema = z
   .object({
     mic: z.boolean(),
     system: z.boolean(),
-    micDeviceId: z.string().trim().min(1).optional()
+    micDeviceId: z.string().trim().min(1).optional(),
+    paused: z.boolean().optional()
   })
   .strict()
