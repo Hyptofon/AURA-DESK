@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { IntegratedAudioSupervisor } from '../../src/main/capture/integrated-audio-supervisor'
-import { MicrophoneCapturer, type MicrophoneBackend } from '../../src/main/capture/microphone-capturer'
-import { SystemLoopbackCapturer, type SystemLoopbackBackend } from '../../src/main/capture/system-loopback-capturer'
-import type { AudioChunk, AudioDevice } from '../../src/shared/contracts/audio'
+import { IntegratedAudioSupervisor } from '@/main/capture/integrated-audio-supervisor'
+import { MicrophoneCapturer, type MicrophoneBackend } from '@/main/capture/microphone-capturer'
+import { SystemLoopbackCapturer, type SystemLoopbackBackend } from '@/main/capture/system-loopback-capturer'
+import type { AudioChunk, AudioDevice } from '@/shared/contracts/audio'
 
 class MockMicBackend implements MicrophoneBackend {
   public lastStartedDeviceId: string | undefined = undefined
