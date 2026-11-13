@@ -13,10 +13,15 @@
 
 ## Current milestone
 
-**M3 — Transcription and question detection** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3 completed and verified; Task P3.4 in progress).
+**M3 — Transcription and question detection** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3, P3.4 completed and verified; GATE-3 verification checklist ready).
 
 ## Verified deliverables
 
+- P3.4 Question Detection Controls (COMPLETED & VERIFIED):
+  * Implemented QuestionControls enforcing configurable confidence filtering (minConfidence default 0.75), debounce window settling (default 1200ms), cooldown intervals (default 5000ms), cross-source deduplication, and bounded history retention (src/main/transcription/question-controls.ts).
+  * Added instant debounce timer cancellation and queue flush on stop() and pause() to prevent unexpected late candidate emissions.
+  * Integrated QuestionControls into TranscriptionPipeline with lifecycle reset/cancel wiring (src/main/transcription/transcription-pipeline.ts).
+  * Added 18 unit tests across question-controls.test.ts (11) and transcription-pipeline.test.ts (7). Total suite: 38 suites, 501 tests passing green.
 - P3.3 Finalized Transcripts & Question Candidate Pipeline (COMPLETED & VERIFIED):
   * Defined typed QuestionCandidate and TranscriptionSessionState contracts with question detection statuses (src/shared/contracts/questions.ts).
   * Added TRANSCRIPTION_GET_STATE and TRANSCRIPTION_STATE_CHANGED allowlisted IPC channels with typed schema validation (src/shared/contracts/channels.ts, src/shared/contracts/ipc.ts).
