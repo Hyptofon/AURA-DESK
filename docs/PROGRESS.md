@@ -1,6 +1,6 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 IN PROGRESS (P1.1, P1.2, P1.3 COMPLETED)`.
+**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 COMPLETED (P1.1, P1.2, P1.3, P1.4 COMPLETED, GATE-1 CONSOLIDATED MANUAL CHECKLIST PREPARED)`.
 
 ## Summary
 
@@ -13,7 +13,7 @@
 
 ## Current milestone
 
-**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4; Tasks P1.1, P1.2, P1.3 completed; Task P1.4 scheduled).
+**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4; Tasks P1.1, P1.2, P1.3, P1.4 completed and merged; GATE-1 consolidated manual checklist prepared; Milestone M2 authorized).
 
 ## Verified deliverables
 
@@ -69,6 +69,12 @@
   * False-Positive Stop Prevention & Error Propagation (`src/main/capture/single-display-capturer.ts`): diagnosed and fixed critical defect where `SingleDisplayCapturer.stopAsync()` caught and swallowed backend stop errors, allowing state to falsely become `idle`. Now guarantees in-memory buffer clearing while transitioning state to `'error'` (`BACKEND_STOP_FAILED: <msg>`) and rethrowing teardown errors so supervisors and IPC callers fail closed without false-positive success.
   * Interrupted Start Cancellation & Track Teardown (`src/main/capture/capture-window-client.ts`): diagnosed and fixed asynchronous race condition where calling `stopStream()` while `getDisplayMedia()` was in-flight allowed late-resolving starts to restore active stream state and leak MediaStream tracks in Chromium. Introduced `streamGeneration` lifecycle token, unconditional in-page track cleanup in `cleanupStream()`, and in-page `window.__streamCancelled` check that immediately stops newly granted tracks if stopped during acquisition.
   * Unit & Regression Tests: added targeted regression test suites for backend stop failure rejection and error state transition (`test/unit/single-display-capturer.test.ts`) and stop-during-in-flight-start race invariants (`test/unit/mediastream-pipeline.test.ts`), bringing the passing unit test suite to 299 tests across 19 suites.
+- P1.4 Overlay Exclusion, Screen Recursion Guard & Windows DPI Scaling (COMPLETED & MERGED, PR #7):
+  * Content Protection (`src/main/capture/overlay-exclusion.ts`, `src/main/index.ts`): implemented `applyContentProtection` invoking `win.setContentProtection(true)` (backed by Windows DWM display affinity) on main and future overlay windows; safely handles destroyed windows and platform fallback.
+  * Recursion Guard & Overlap Detection (`src/main/capture/overlay-exclusion.ts`): implemented `isWindowOverlappingDisplay` with negative coordinate support and `evaluateRecursionRisk` to prevent uncontrolled capture feedback loops when overlay or application windows intersect the target display.
+  * Windows DPI Scaling Mapping (`src/main/capture/dpi-bounds.ts`): implemented `toPhysicalBounds`, `toLogicalBounds`, and `matchesDisplayBounds` mapping logical DIPs to physical pixels across 100%, 125%, 150%, and mixed-DPI dual-monitor setups with negative coordinates.
+  * DPI-Aware Source Resolution (`src/main/capture/source-resolver.ts`): integrated `matchesDisplayBounds` into Strategy 2 to resolve coordinates whether Windows reports physical or logical dimensions without false-closed mismatches under DPI scaling.
+  * Unit Tests: 323 tests total across 21 test suites passing green (`dpi-bounds.test.ts` [8], `overlay-exclusion.test.ts` [15], `source-resolver.test.ts` [19], etc.).
 
 ### Capture Backend Architecture & Trade-Offs Analysis:
 1. **Architecture 1 — Electron `desktopCapturer` in Main process**:
@@ -92,7 +98,7 @@
 - `git diff --check main...HEAD`: PASS (0 whitespace / formatting issues).
 - `npm run typecheck`: PASS (0 errors across node and web targets).
 - `npm run lint`: PASS (0 errors, 0 warnings).
-- `npm run test`: PASS (299 tests total across 19 suites: physical-harness-modes [32], mediastream-pipeline [27], ipc-handlers [39], single-display-capturer [19], windows-display-query [6], navigation-guard [17], display-manager [20], ipc-contracts [35], dual-session-ipc [5], dual-display-capturer [11], frame-pixel-sampler [9], frame-buffer [12], preload-api [15], dual-capture-factory [2], dual-capture-backends [5], source-resolver [18], dual-display-selection [7], production-invariants [16], App.test.tsx [4]).
+- `npm run test`: PASS (323 tests total across 21 suites: dpi-bounds [8], overlay-exclusion [15], physical-harness-modes [32], mediastream-pipeline [27], ipc-handlers [39], single-display-capturer [19], windows-display-query [6], navigation-guard [17], display-manager [20], ipc-contracts [35], dual-session-ipc [5], dual-display-capturer [11], frame-pixel-sampler [9], frame-buffer [12], preload-api [15], dual-capture-factory [2], dual-capture-backends [5], source-resolver [19], dual-display-selection [7], production-invariants [16], App.test.tsx [4]).
 - `Dual-Monitor Physical Source Isolation (Test A)`: PASS (user-observed and verified with 9/9 checks PASS on 2 physical monitors: Display 1 `1238924755` Cobalt Blue ratio 1.0, mean `{r:0,g:87,b:182}`, 52635 bytes; Display 2 `368940417` Crimson Red ratio 1.0, mean `{r:217,g:44,b:43}`, 54331 bytes; both windows positioned on `screen-saver` topmost band; resource teardown clean; nonexistent display fails closed without fallback; clean exit 0; historical evidence preserved in `artifacts/local-validation/physical-isolation/dual/2026-11-12T23-00-05-310Z-8zksd0.json`).
 - `Single-Monitor Physical Capture (Test B)`: PASS (user-observed and verified with 7/7 checks PASS after disconnecting external video cable: laptop display `1238924755` Cobalt Blue ratio 1.0, Crimson Red ratio 0, mean `{r:0,g:87,b:182}`, 56340 bytes, attempts: 1; buffer cleanup PASS; nonexistent display fails closed; clean exit 0; historical evidence preserved in `artifacts/local-validation/physical-isolation/single/2026-11-12T22-56-25-799Z-05ubho.json`).
 - `Physical Reconnection Between Sessions (Test C)`: PASS (external monitor reconnected, enumerated both displays, dual-monitor isolation test re-run with 9/9 PASS).
@@ -130,7 +136,7 @@
 
 ## Next recommended task
 
-Task P1.4 (Verify overlay exclusion / screen recursion, Windows DPI scaling).
+Milestone M2: Task P2.1 (Microphone Capture + Lightweight VAD).
 
 ## Completed work template (fill after genuine verification)
 
