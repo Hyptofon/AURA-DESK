@@ -69,8 +69,8 @@ export class SystemLoopbackCapturer {
    * Starts Windows system audio loopback capture.
    */
   async start(): Promise<void> {
-    if (this.status === 'active') {
-      throw new Error('System audio loopback capture is already active')
+    if (this.status === 'active' || this.status === 'starting') {
+      throw new Error('System audio loopback capture is already starting or active')
     }
 
     const currentGen = ++this.sessionGeneration
