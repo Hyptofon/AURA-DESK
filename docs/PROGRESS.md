@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 31 suites, 438 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 33 suites, 460 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
 - [ ] Product acceptance criteria verified.
 
@@ -17,6 +17,13 @@
 
 ## Verified deliverables
 
+- P3.1 STT Provider Contract & Audio Resampling Architecture (COMPLETED & VERIFIED):
+  * Defined typed SpeechToTextProvider, AudioPcmBuffer, TranscriptionRequest, and TranscriptSegment contracts without external package dependencies (src/shared/contracts/transcription.ts).
+  * Implemented anti-aliased 3:1 integer decimation (48kHz -> 16kHz) and linear interpolation resampling plus multi-channel downmixing (src/main/transcription/audio-resampler.ts).
+  * Created Ukrainian and English speech test fixtures and synthetic Int16 PCM tone generators (test/fixtures/stt-fixtures.ts).
+  * Implemented deterministic FakeSttProvider with abort signal support and format normalization (src/main/transcription/fake-stt-provider.ts).
+  * Implemented VAD-governed SpeechWindowAssembler aggregating small audio chunks into contiguous utterance windows (src/main/transcription/speech-window.ts).
+  * Added 22 unit tests across 2 new test suites (audio-resampler.test.ts [10], stt-provider-contract.test.ts [12]). Total suite: 33 suites, 460 tests passing green.
 - Documentation pack: README, specification, architecture, UX/design, privacy, tests, roadmap, agent rules/skills, Git hooks (P0.2).
 - Git hooks configuration: `.githooks/pre-commit` and `commit-msg` active via `core.hooksPath`; single-file commit policy strictly enforced and tested.
 - P0.1 Skeleton: `electron-vite`, React 18, TypeScript strict, `tsconfig.node.json`, `tsconfig.web.json`, secure Electron main process with sandbox and CSP, preload typed bridge, and Quiet Instrument styled React App.
@@ -244,7 +251,7 @@ User completed physical verification on real Windows hardware (real observations
 
 **GATE-2 Outcome:** Electron/Chromium pipeline chosen as the verified production audio architecture. .NET/NAudio helper is not required for this hardware setup and is retained only as an optional future fallback.
 
-Milestone M3: Task P3.1 (STT Provider Contract & Resampling Architecture).
+Milestone M3: Task P3.2 (Local whisper.cpp STT Integration).
 
 ## Completed work template (fill after genuine verification)
 
