@@ -558,6 +558,9 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
 
       // onAudioStateChanged must return a cleanup function calling removeListener
       expect(preloadCode).toMatch(/onAudioStateChanged[\s\S]*?removeListener/)
+
+      // onTranscriptionStateChanged must return a cleanup function calling removeListener
+      expect(preloadCode).toMatch(/onTranscriptionStateChanged[\s\S]*?removeListener/)
     })
 
     it('enforces fail-closed window opening and navigation guards', () => {
