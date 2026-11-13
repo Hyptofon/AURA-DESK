@@ -57,7 +57,7 @@ export class QuestionControls {
   public normalizeText(text: string): string {
     return text
       .toLowerCase()
-      .replace(/[.,/#!$%^&*;:{}=\-_`~()?'"«»„“”]/g, '')
+      .replace(/[.,/#!$%^&*;:{}=\-_`~()?'"«»„“”’‘ʼ]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
   }
