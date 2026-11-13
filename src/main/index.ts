@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, session, desktopCapturer } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
@@ -117,9 +117,42 @@ function createWindow(): void {
     callback(false)
   })
 
-  // Authorize system loopback audio requests from authorized main window
-  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-    callback({ audio: 'loopback' })
+  // Authorize system loopback audio requests exclusively from authorized main window
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    // Fail-closed: only authorized main window can request loopback audio
+    if (!mainWindow || !request.frame || request.frame.processId !== mainWindow.webContents.mainFrame.processId) {
+      callback(null as unknown as { video: unknown; audio: unknown })
+      return
+    }
+
+    try {
+      // Chromium getDisplayMedia requires a video source even for audio loopback.
+      // Grant only an authorized window or primary display source to satisfy the API
+      // without capturing an unrelated monitor; renderer stops and removes video immediately.
+      const sources = await desktopCapturer.getSources({
+        types: ['window', 'screen'],
+        thumbnailSize: { width: 0, height: 0 }
+      })
+
+      // Prefer application's own window so no desktop monitor is captured
+      const windowSource = sources.find(
+        (s) => s.id.startsWith('window:') && (s.name.includes('AURA DESK') || s.id.includes(String(mainWindow?.id)))
+      )
+      const selectedSource = windowSource ?? sources[0]
+
+      if (!selectedSource) {
+        callback(null as unknown as { video: unknown; audio: unknown })
+        return
+      }
+
+      callback({
+        video: selectedSource,
+        audio: 'loopback'
+      })
+    } catch (err) {
+      console.error('Failed to resolve display media source for loopback audio:', err)
+      callback(null as unknown as { video: unknown; audio: unknown })
+    }
   })
 
   // Forward validated display hotplug and metrics events to authorized window
@@ -128,6 +161,9 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     unsubscribeDisplays()
     unregisterIpcHandlers()
+    session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+      callback(null as unknown as { video: unknown; audio: unknown })
+    })
     if (audioSupervisor) {
       void audioSupervisor.stopAll()
       audioSupervisor = null
