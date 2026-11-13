@@ -161,6 +161,7 @@ export function defaultCaptureWindowFactory(
  */
 export class CaptureWindowClient implements DisplayMediaStreamClient {
   private active = false
+  private streamGeneration = 0
   private activeTarget: CaptureTarget | null = null
   private captureWindow: BrowserWindowLike | null = null
   private readonly session: unknown
@@ -190,12 +191,17 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
       await this.stopStream()
     }
 
+    const currentGen = ++this.streamGeneration
     this.activeTarget = { ...target }
 
     // If a custom webExecutor was supplied (e.g. specialized test harness), use it directly
     if (this.webExecutor) {
       try {
         await this.executeStreamStartScript((s, ug = true) => this.webExecutor!(s, ug))
+        if (this.streamGeneration !== currentGen) {
+          await this.cleanupStream()
+          throw new Error('Capture stream start was cancelled before becoming active')
+        }
         this.active = true
         return
       } catch (err) {
@@ -228,6 +234,12 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
       }
 
       await this.executeStreamStartScript(executor)
+
+      if (this.streamGeneration !== currentGen) {
+        await this.cleanupStream()
+        throw new Error('Capture stream start was cancelled before becoming active')
+      }
+
       this.active = true
     } catch (err) {
       await this.cleanupStream()
@@ -348,6 +360,7 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
   }
 
   public async stopStream(): Promise<void> {
+    this.streamGeneration++
     await this.cleanupStream()
   }
 
@@ -426,6 +439,10 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
             if (!track || track.readyState !== 'live') {
               return { ok: false, error: 'Acquired video track is not live', errorName: 'InvalidStateError' };
             }
+            if (window.__streamCancelled) {
+              try { tracks.forEach(t => t.stop()); } catch (_) {}
+              return { ok: false, error: 'Capture stream start was cancelled by stop', errorName: 'AbortError' };
+            }
             window.__activeStream = stream;
             window.__activeTrack = track;
             return { ok: true, trackId: track.id, label: track.label };
@@ -464,16 +481,17 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
         ? (script: string) => this.captureWindow!.webContents.executeJavaScript(script, false)
         : null)
 
-    if (executor && this.active) {
+    if (executor) {
       try {
         await executor(`
           (() => {
+            window.__streamCancelled = true;
             if (window.__activeTrack) {
-              window.__activeTrack.stop();
+              try { window.__activeTrack.stop(); } catch (_) {}
               window.__activeTrack = null;
             }
             if (window.__activeStream) {
-              window.__activeStream.getTracks().forEach(t => t.stop());
+              try { window.__activeStream.getTracks().forEach(t => t.stop()); } catch (_) {}
               window.__activeStream = null;
             }
           })()
@@ -507,6 +525,7 @@ export class CaptureWindowClient implements DisplayMediaStreamClient {
       }
     })
     win.on('closed', () => {
+      this.streamGeneration++
       this.active = false
       this.activeTarget = null
       this.captureWindow = null
