@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   SystemLoopbackCapturer,
   type SystemLoopbackBackend
-} from '../../src/main/capture/system-loopback-capturer'
-import type { AudioChunk } from '../../src/shared/contracts/audio'
+} from '@/main/capture/system-loopback-capturer'
+import type { AudioChunk } from '@/shared/contracts/audio'
 
 function createFakeLoopbackChunk(durationMs = 20): AudioChunk {
   return {
