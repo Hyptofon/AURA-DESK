@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import type { DisplayBounds } from '../../shared/contracts/channels'
+import type { DisplayBounds } from '@/shared/contracts/channels'
 
 export interface WindowsDisplayDevice {
   deviceName: string
