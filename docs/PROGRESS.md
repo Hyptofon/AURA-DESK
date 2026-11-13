@@ -1,6 +1,6 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 IN PROGRESS (P1.1 COMPLETED, P1.2 COMPLETED AND ACCEPTED, P1.3 IMPLEMENTATION IN PROGRESS)`.
+**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 IN PROGRESS (P1.1, P1.2, P1.3 COMPLETED)`.
 
 ## Summary
 
@@ -13,7 +13,7 @@
 
 ## Current milestone
 
-**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4; Task P1.1 completed and merged; Task P1.2 completed, physically verified on hardware, and accepted; Task P1.3 in progress via PR #5).
+**M1 — Real Windows capture spike** (Milestone M0 completed and verified: P0.1, P0.2, P0.3, P0.4; Tasks P1.1, P1.2, P1.3 completed; Task P1.4 scheduled).
 
 ## Verified deliverables
 
@@ -63,7 +63,7 @@
   * Live Hotplug Disconnect Test during Active Capture (Test D — PASS): user-observed manual hardware verification; selected external monitor `368940417` (`2475W1`); `startSession` entered `active`; external monitor cable physically unplugged during active capture; display count dropped 2->1; `selectedDisplayLost: true` emitted; session transitioned from `active` to `error`; zero cross-display fallback to laptop display; explicit `stopSession()` restored `idle`.
   * Internal Asynchronous Cleanup & Teardown Audit: verified immediate generation invalidation, buffer flush, timer clear, display listener unsubscription; `pendingBackendStop` promise tracking prevents in-flight teardown race conditions and ensures clean sequential startup; 18 unit tests in `single-display-capturer.test.ts` passing green.
   * Unit & Contract Tests: 266 tests total across 14 test suites passing green (`physical-harness-modes.test.ts` [32], `single-display-capturer.test.ts` [18], `frame-buffer.test.ts` [12], `source-resolver.test.ts` [18], `windows-display-query.test.ts` [6], `frame-pixel-sampler.test.ts` [9], `ipc-contracts.test.ts` [35], `ipc-handlers.test.ts` [39], `preload-api.test.ts` [15], `display-manager.test.ts` [20], `navigation-guard.test.ts` [17], `production-invariants.test.ts` [16], `mediastream-pipeline.test.ts` [25], `App.test.tsx` [4]).
-- P1.3 Dual Display Capture & Robustness Hardening (IN PROGRESS, PR #5):
+- P1.3 Dual Display Simultaneous Capture & Synchronization (COMPLETED & VERIFIED, PR #5):
   * Dual Capture Contracts (`src/shared/contracts/capture.ts`, `src/shared/contracts/ipc.ts`, `src/shared/contracts/channels.ts`): defined dual session start/stop contracts, dual frame buffer schemas, and unified status events.
   * DualDisplayCapturer Implementation (`src/main/capture/dual-display-capturer.ts`): orchestrates two concurrent child `SingleDisplayCapturer` instances, manages synchronized dual ring buffers, handles single-child failure abort, and enforces fail-closed teardown.
   * False-Positive Stop Prevention & Error Propagation (`src/main/capture/single-display-capturer.ts`): diagnosed and fixed critical defect where `SingleDisplayCapturer.stopAsync()` caught and swallowed backend stop errors, allowing state to falsely become `idle`. Now guarantees in-memory buffer clearing while transitioning state to `'error'` (`BACKEND_STOP_FAILED: <msg>`) and rethrowing teardown errors so supervisors and IPC callers fail closed without false-positive success.
@@ -130,7 +130,7 @@
 
 ## Next recommended task
 
-Task P1.3 (Dual Display Simultaneous Capture).
+Task P1.4 (Verify overlay exclusion / screen recursion, Windows DPI scaling).
 
 ## Completed work template (fill after genuine verification)
 
