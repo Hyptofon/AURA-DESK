@@ -141,7 +141,30 @@ export class SystemLoopbackCapturer {
     this.setStatus('idle')
   }
 
+  /**
+   * Pauses system audio loopback capture without tearing down the connection.
+   * Incoming loopback chunks are dropped immediately to preserve privacy.
+   */
+  pause(): void {
+    if (this.status === 'active') {
+      this.setStatus('paused')
+    }
+  }
+
+  /**
+   * Resumes system audio loopback capture from paused state.
+   */
+  resume(): void {
+    if (this.status === 'paused') {
+      this.setStatus('active')
+    }
+  }
+
   private handleIncomingChunk(rawChunk: AudioChunk): void {
+    if (this.status !== 'active') {
+      return
+    }
+
     const taggedChunk: AudioChunk = {
       ...rawChunk,
       source: 'system'
