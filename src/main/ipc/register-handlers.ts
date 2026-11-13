@@ -8,11 +8,14 @@ import {
   SessionStartRequestSchema,
   SessionStartResponseSchema,
   SessionStopResponseSchema,
+  AudioConfigSchema,
   type CaptureSelection,
   type SessionStatus,
   type DisplayConfiguration,
   type IpcResponse
 } from '../../shared/contracts/ipc'
+import type { AudioSessionState, AudioDevice } from '../../shared/contracts/audio'
+import type { IntegratedAudioSupervisor } from '../capture/integrated-audio-supervisor'
 import { DisplayManager } from '../displays/display-manager'
 import type { SessionState } from '../../shared/contracts/channels'
 import { SingleDisplayCapturer } from '../capture/single-display-capturer'
@@ -205,6 +208,8 @@ let activeDualCapturer: DualDisplayCapturer | null = null
 let runningMode: 'single' | 'both' | null = null
 let activeStatusUnsubscribe: (() => void) | null = null
 let activeDualStatusUnsubscribe: (() => void) | null = null
+let activeAudioSupervisor: IntegratedAudioSupervisor | null = null
+let activeAudioStateUnsubscribe: (() => void) | null = null
 
 export function getSingleDisplayCapturer(
   manager: DisplayManager = getDisplayManager()
@@ -229,7 +234,8 @@ export function registerIpcHandlers(
   validatorOrContext?: IpcSenderValidator | IpcSenderValidationContext,
   displayManager?: DisplayManager,
   singleDisplayCapturer?: SingleDisplayCapturer,
-  dualDisplayCapturer?: DualDisplayCapturer
+  dualDisplayCapturer?: DualDisplayCapturer,
+  audioSupervisor?: IntegratedAudioSupervisor
 ): void {
   if (!validatorOrContext) {
     throw new Error(
@@ -249,6 +255,7 @@ export function registerIpcHandlers(
   const capturer = singleDisplayCapturer ?? getSingleDisplayCapturer(manager)
   const dual = dualDisplayCapturer ?? null
   activeDualCapturer = dual
+  activeAudioSupervisor = audioSupervisor ?? null
   runningMode = null
 
   // Forward validated session status transitions from capturer to trusted window
@@ -273,6 +280,18 @@ export function registerIpcHandlers(
     }
     activeStatusUnsubscribe = capturer.onStatusChange((status, error) => forward('single', status, error))
     if (dual) activeDualStatusUnsubscribe = dual.onStatusChange((status, error) => forward('both', status, error))
+
+    if (activeAudioSupervisor) {
+      activeAudioStateUnsubscribe = activeAudioSupervisor.onStateChanged((state) => {
+        if (!webContents.isDestroyed || !webContents.isDestroyed()) {
+          try {
+            webContents.send!(IPC_CHANNELS.AUDIO_STATE_CHANGED, state)
+          } catch (err) {
+            console.error('Failed to forward audio state change event:', err)
+          }
+        }
+      })
+    }
   }
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
@@ -542,6 +561,129 @@ export function registerIpcHandlers(
       }
     }
   )
+
+  ipc.handle(
+    IPC_CHANNELS.AUDIO_GET_STATE,
+    async (event: unknown): Promise<IpcResponse<AudioSessionState>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      if (!activeAudioSupervisor) {
+        return {
+          ok: false,
+          error: {
+            code: 'AUDIO_UNAVAILABLE',
+            message: 'Audio supervisor is not initialized'
+          }
+        }
+      }
+
+      return {
+        ok: true,
+        data: activeAudioSupervisor.getState()
+      }
+    }
+  )
+
+  ipc.handle(
+    IPC_CHANNELS.AUDIO_SET_CONFIG,
+    async (event: unknown, payload: unknown): Promise<IpcResponse<AudioSessionState>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      const parsed = AudioConfigSchema.safeParse(payload)
+      if (!parsed.success) {
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_AUDIO_CONFIG',
+            message: parsed.error.message
+          }
+        }
+      }
+
+      if (!activeAudioSupervisor) {
+        return {
+          ok: false,
+          error: {
+            code: 'AUDIO_UNAVAILABLE',
+            message: 'Audio supervisor is not initialized'
+          }
+        }
+      }
+
+      try {
+        const state = await activeAudioSupervisor.setAudioConfig(parsed.data)
+        return {
+          ok: true,
+          data: state
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          error: {
+            code: 'AUDIO_CONFIG_FAILED',
+            message: err instanceof Error ? err.message : String(err)
+          }
+        }
+      }
+    }
+  )
+
+  ipc.handle(
+    IPC_CHANNELS.AUDIO_GET_DEVICES,
+    async (event: unknown): Promise<IpcResponse<AudioDevice[]>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      if (!activeAudioSupervisor) {
+        return {
+          ok: true,
+          data: []
+        }
+      }
+
+      try {
+        const devices = await activeAudioSupervisor.enumerateDevices()
+        return {
+          ok: true,
+          data: devices
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          error: {
+            code: 'AUDIO_ENUMERATION_FAILED',
+            message: err instanceof Error ? err.message : String(err)
+          }
+        }
+      }
+    }
+  )
 }
 
 /**
@@ -556,6 +698,11 @@ export function unregisterIpcHandlers(ipc: IpcMainLike = ipcMain): void {
     activeDualStatusUnsubscribe()
     activeDualStatusUnsubscribe = null
   }
+  if (activeAudioStateUnsubscribe) {
+    activeAudioStateUnsubscribe()
+    activeAudioStateUnsubscribe = null
+  }
+  activeAudioSupervisor = null
   for (const channel of Object.values(IPC_CHANNELS)) {
     try {
       ipc.removeHandler(channel)
