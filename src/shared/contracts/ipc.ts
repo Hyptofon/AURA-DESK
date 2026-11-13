@@ -167,7 +167,9 @@ export const AudioSubmitChunkSchema = z
     timestamp: z.number().positive(),
     durationMs: z.number().nonnegative(),
     sampleRate: z.number().positive().optional(),
-    channels: z.number().int().positive().optional()
+    channels: z.number().int().positive().optional(),
+    isSpeech: z.boolean().optional(),
+    rms: z.number().nonnegative().optional()
   })
   .strict()
 
