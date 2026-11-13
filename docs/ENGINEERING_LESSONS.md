@@ -181,3 +181,12 @@ This document is the persistent repository of hard-won engineering lessons from 
 - **Generalizable Engineering Rule:** When creating multi-byte typed arrays (`Int16Array`, `Float32Array`) from incoming binary chunks, always check `byteOffset % TypedArray.BYTES_PER_ELEMENT === 0`. If unaligned, slice the buffer into a fresh aligned copy before constructing the typed array view.
 - **Preventive Test / Check:** `test/unit/microphone-capturer.test.ts` verifying that unaligned `byteOffset` buffers are processed into `Int16Array` and passed to VAD and ring buffers without throwing.
 - **Relevant Skill / Rule:** `.agents/skills/audio-transcription/SKILL.md`, `.agents/rules/architecture.md`.
+
+---
+
+## Lesson 21: Excluding Test Directories from tsconfig Creates False-Green Typecheck Blind Spots
+- **Symptom:** The IDE TypeScript language server reported TS2349: `This expression is not callable. Type 'never' has no call signatures.` in `test/unit/electron-loopback-backend.test.ts`, while `npm run typecheck` in terminal exited 0 with no errors.
+- **Root Cause & Detection Gap:** In `package.json`, `"typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"`. However, `tsconfig.node.json` only included `src/main`, `src/preload`, and `src/shared`. The `test/` directory was completely absent from tsconfig includes. Because Vitest runs tests via Vite/esbuild (which strips types without type checking), all tests passed at runtime while TypeScript compilation errors in test code went undetected by CI/CLI scripts until opened in the editor.
+- **Generalizable Engineering Rule:** Always include `test/**/*` in TypeScript compilation scopes (`tsconfig.node.json` or a dedicated test tsconfig) to ensure that `npm run typecheck` performs static type checking over test suites, mock contracts, and assertion signatures alongside production source code.
+- **Preventive Test / Check:** `tsconfig.node.json` explicitly including `"test/**/*"`, and `npm run typecheck` covering both test suites and application code.
+- **Relevant Skill / Rule:** `.agents/skills/testing-strategy/SKILL.md`, `.agents/rules/testing-quality.md`.
