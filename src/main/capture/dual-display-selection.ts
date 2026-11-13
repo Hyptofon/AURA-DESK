@@ -1,4 +1,4 @@
-import type { DisplayConfiguration, DisplayInfo } from '../../shared/contracts/channels'
+import type { DisplayConfiguration, DisplayInfo } from '@/shared/contracts/channels'
 
 /**
  * Resolve the two explicitly allowed display IDs for P1.3.

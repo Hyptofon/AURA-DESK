@@ -4,16 +4,16 @@ import * as path from 'path'
 import {
   SingleDisplayCapturer,
   type DesktopCapturerLike
-} from '../../src/main/capture/single-display-capturer'
-import { CaptureWindowClient, resolveCaptureHtmlPath } from '../../src/main/capture/capture-window-client'
+} from '@/main/capture/single-display-capturer'
+import { CaptureWindowClient, resolveCaptureHtmlPath } from '@/main/capture/capture-window-client'
 import {
   MediaStreamDisplayCaptureBackend,
   type MediaStreamSessionLike,
   type DisplayMediaRequest,
   type DisplayStreams
-} from '../../src/main/capture/mediastream-backend'
-import { DisplayManager, type ScreenLike, type ElectronDisplayLike } from '../../src/main/displays/display-manager'
-import type { CapturedFrame, CaptureTarget, FrameCaptureBackend } from '../../src/shared/contracts/capture'
+} from '@/main/capture/mediastream-backend'
+import { DisplayManager, type ScreenLike, type ElectronDisplayLike } from '@/main/displays/display-manager'
+import type { CapturedFrame, CaptureTarget, FrameCaptureBackend } from '@/shared/contracts/capture'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
 class MockScreenApi implements ScreenLike {

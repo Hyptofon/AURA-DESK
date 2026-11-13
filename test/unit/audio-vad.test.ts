@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculateRms, EnergyVad } from '../../src/main/capture/audio-vad'
+import { calculateRms, EnergyVad } from '@/main/capture/audio-vad'
 
 describe('EnergyVad & RMS Audio Processing', () => {
   describe('calculateRms', () => {

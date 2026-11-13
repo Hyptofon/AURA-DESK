@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DualDisplayCapturer, type DualDisplayManager } from '../../src/main/capture/dual-display-capturer'
-import type { CapturedFrame, FrameBufferStats, ScreenCapturePort } from '../../src/shared/contracts/capture'
-import type { DisplayConfiguration, DisplayInfo, SessionStatus } from '../../src/shared/contracts/channels'
+import { DualDisplayCapturer, type DualDisplayManager } from '@/main/capture/dual-display-capturer'
+import type { CapturedFrame, FrameBufferStats, ScreenCapturePort } from '@/shared/contracts/capture'
+import type { DisplayConfiguration, DisplayInfo, SessionStatus } from '@/shared/contracts/channels'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
 const makeDisplay = (id: string, isPrimary: boolean, x: number): DisplayInfo => ({

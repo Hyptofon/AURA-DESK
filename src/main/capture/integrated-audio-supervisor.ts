@@ -2,7 +2,7 @@ import type {
   AudioConfig,
   AudioDevice,
   AudioSessionState
-} from '../../shared/contracts/audio'
+} from '@/shared/contracts/audio'
 import type { MicrophoneCapturer } from './microphone-capturer'
 import type { SystemLoopbackCapturer } from './system-loopback-capturer'
 

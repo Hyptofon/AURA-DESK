@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { selectDualDisplayIds } from '../../src/main/capture/dual-display-selection'
-import type { DisplayConfiguration, DisplayInfo } from '../../src/shared/contracts/channels'
+import { selectDualDisplayIds } from '@/main/capture/dual-display-selection'
+import type { DisplayConfiguration, DisplayInfo } from '@/shared/contracts/channels'
 
 const display = (id: string, isPrimary: boolean, x: number): DisplayInfo => ({
   id,

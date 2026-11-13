@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { registerIpcHandlers, setSessionStatus, unregisterIpcHandlers, type IpcMainLike } from '../../src/main/ipc/register-handlers'
-import { IPC_CHANNELS, type IpcResponse } from '../../src/shared/contracts/ipc'
-import type { SessionState, SessionStatus } from '../../src/shared/contracts/channels'
-import type { DisplayManager } from '../../src/main/displays/display-manager'
+import { registerIpcHandlers, setSessionStatus, unregisterIpcHandlers, type IpcMainLike } from '@/main/ipc/register-handlers'
+import { IPC_CHANNELS, type IpcResponse } from '@/shared/contracts/ipc'
+import type { SessionState, SessionStatus } from '@/shared/contracts/channels'
+import type { DisplayManager } from '@/main/displays/display-manager'
 
 vi.mock('electron', () => ({ app: { getVersion: () => '0.1.0', isPackaged: false }, ipcMain: {} }))
 

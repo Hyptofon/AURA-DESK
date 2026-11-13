@@ -4,15 +4,15 @@ import {
   type MediaStreamSessionLike,
   type DisplayMediaRequest,
   type DisplayStreams
-} from '../../src/main/capture/mediastream-backend'
+} from '@/main/capture/mediastream-backend'
 import {
   CaptureWindowClient,
   defaultCaptureWindowFactory,
   resolveCaptureHtmlPath,
   type BrowserWindowLike,
   type WebContentsLike
-} from '../../src/main/capture/capture-window-client'
-import type { CaptureTarget } from '../../src/shared/contracts/capture'
+} from '@/main/capture/capture-window-client'
+import type { CaptureTarget } from '@/shared/contracts/capture'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
 interface MockBrowserWindowOptions {

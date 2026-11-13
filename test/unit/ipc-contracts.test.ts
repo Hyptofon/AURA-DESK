@@ -12,7 +12,7 @@ import {
   SessionStartResponseSchema,
   SessionStopResponseSchema,
   CaptureStatusSchema
-} from '../../src/shared/contracts/ipc'
+} from '@/shared/contracts/ipc'
 
 describe('IPC Contracts & Schemas', () => {
   describe('Channel Allowlist', () => {

@@ -5,8 +5,8 @@ import {
   type ScreenLike,
   type ElectronDisplayLike,
   type WebContentsSenderLike
-} from '../../src/main/displays/display-manager'
-import { IPC_CHANNELS, type CaptureSelection } from '../../src/shared/contracts/channels'
+} from '@/main/displays/display-manager'
+import { IPC_CHANNELS, type CaptureSelection } from '@/shared/contracts/channels'
 
 class MockScreen implements ScreenLike {
   public displays: ElectronDisplayLike[] = []

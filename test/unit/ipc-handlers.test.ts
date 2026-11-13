@@ -7,17 +7,17 @@ import {
   type IpcMainLike,
   type IpcInvokeEventLike,
   type FrameLike
-} from '../../src/main/ipc/register-handlers'
+} from '@/main/ipc/register-handlers'
 import {
   IPC_CHANNELS,
   DisplayConfigurationSchema,
   type IpcResponse,
   type DisplayConfiguration,
   type SessionStatus
-} from '../../src/shared/contracts/ipc'
-import type { ScreenCapturePort } from '../../src/shared/contracts/capture'
-import type { SingleDisplayCapturer } from '../../src/main/capture/single-display-capturer'
-import { DisplayManager, forwardDisplayEvents } from '../../src/main/displays/display-manager'
+} from '@/shared/contracts/ipc'
+import type { ScreenCapturePort } from '@/shared/contracts/capture'
+import type { SingleDisplayCapturer } from '@/main/capture/single-display-capturer'
+import { DisplayManager, forwardDisplayEvents } from '@/main/displays/display-manager'
 
 class MockIpcMain implements IpcMainLike {
   public handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown> | unknown>()

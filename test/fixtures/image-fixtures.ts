@@ -1,5 +1,5 @@
 import zlib from 'node:zlib'
-import type { CapturedFrame } from '../../src/shared/contracts/capture'
+import type { CapturedFrame } from '@/shared/contracts/capture'
 
 function crc32(buf: Buffer): number {
   let c = 0xffffffff

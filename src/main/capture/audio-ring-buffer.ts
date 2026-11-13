@@ -1,4 +1,4 @@
-import type { AudioBufferOptions, AudioBufferStats, AudioChunk } from '../../shared/contracts/audio'
+import type { AudioBufferOptions, AudioBufferStats, AudioChunk } from '@/shared/contracts/audio'
 
 /**
  * Hard-bounded in-memory ring buffer for audio chunks.

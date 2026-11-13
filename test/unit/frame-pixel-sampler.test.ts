@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib'
 import { describe, it, expect } from 'vitest'
-import { samplePngPixels } from '../../src/main/capture/frame-pixel-sampler'
+import { samplePngPixels } from '@/main/capture/frame-pixel-sampler'
 
 function crc32(buf: Uint8Array): number {
   let crc = 0xffffffff

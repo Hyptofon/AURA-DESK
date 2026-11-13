@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { FrameRingBuffer } from '../../src/main/capture/frame-buffer'
-import type { CapturedFrame } from '../../src/shared/contracts/capture'
+import { FrameRingBuffer } from '@/main/capture/frame-buffer'
+import type { CapturedFrame } from '@/shared/contracts/capture'
 
 describe('FrameRingBuffer', () => {
   let buffer: FrameRingBuffer

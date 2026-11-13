@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { AudioRingBuffer } from '../../src/main/capture/audio-ring-buffer'
-import type { AudioChunk } from '../../src/shared/contracts/audio'
+import { AudioRingBuffer } from '@/main/capture/audio-ring-buffer'
+import type { AudioChunk } from '@/shared/contracts/audio'
 
 function createFakeChunk(id: string, timestamp: number, byteLength: number): AudioChunk {
   return {

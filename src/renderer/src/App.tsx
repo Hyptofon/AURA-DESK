@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { AudioSessionState, AudioConfig } from '../../shared/contracts/audio'
-import type { SessionStatus } from '../../shared/contracts/channels'
+import type { AudioSessionState, AudioConfig } from '@/shared/contracts/audio'
+import type { SessionStatus } from '@/shared/contracts/channels'
 
 export function App(): React.JSX.Element {
   const platform = typeof window !== 'undefined' && window.api ? window.api.platform : 'windows'

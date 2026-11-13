@@ -1,4 +1,4 @@
-import type { VadOptions, VadStatus } from '../../shared/contracts/audio'
+import type { VadOptions, VadStatus } from '@/shared/contracts/audio'
 
 /**
  * Calculates Root-Mean-Square (RMS) energy level of PCM audio samples.

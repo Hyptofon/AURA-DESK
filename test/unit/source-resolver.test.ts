@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   resolveSourceForDisplay,
   type DesktopCapturerSourceLike
-} from '../../src/main/capture/source-resolver'
-import type { DisplayInfo } from '../../src/shared/contracts/channels'
+} from '@/main/capture/source-resolver'
+import type { DisplayInfo } from '@/shared/contracts/channels'
 
 describe('Display Source Resolver', () => {
   const mockDisplays: DisplayInfo[] = [

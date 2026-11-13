@@ -3,11 +3,11 @@ import {
   registerIpcHandlers,
   unregisterIpcHandlers,
   type IpcMainLike
-} from '../../src/main/ipc/register-handlers'
-import { IPC_CHANNELS, type IpcResponse } from '../../src/shared/contracts/ipc'
-import type { AudioSessionState, AudioDevice, AudioConfig } from '../../src/shared/contracts/audio'
-import type { IntegratedAudioSupervisor } from '../../src/main/capture/integrated-audio-supervisor'
-import type { DisplayManager } from '../../src/main/displays/display-manager'
+} from '@/main/ipc/register-handlers'
+import { IPC_CHANNELS, type IpcResponse } from '@/shared/contracts/ipc'
+import type { AudioSessionState, AudioDevice, AudioConfig } from '@/shared/contracts/audio'
+import type { IntegratedAudioSupervisor } from '@/main/capture/integrated-audio-supervisor'
+import type { DisplayManager } from '@/main/displays/display-manager'
 
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.1.0', isPackaged: false },

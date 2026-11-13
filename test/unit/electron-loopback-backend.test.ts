@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   ElectronLoopbackBackend,
   type SessionWithDisplayMediaHandler
-} from '../../src/main/capture/electron-loopback-backend'
-import type { AudioChunk } from '../../src/shared/contracts/audio'
+} from '@/main/capture/electron-loopback-backend'
+import type { AudioChunk } from '@/shared/contracts/audio'
 
 describe('ElectronLoopbackBackend', () => {
   it('registers displayMediaRequestHandler with audio: loopback on start', async () => {

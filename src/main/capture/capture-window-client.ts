@@ -5,7 +5,7 @@ import type {
   CapturedFrame,
   CaptureTarget,
   DisplayMediaStreamClient
-} from '../../shared/contracts/capture'
+} from '@/shared/contracts/capture'
 
 export interface WebContentsLike {
   mainFrame?: unknown

@@ -3,7 +3,7 @@ import type {
   CaptureTarget,
   DisplayMediaStreamClient,
   FrameCaptureBackend
-} from '../../shared/contracts/capture'
+} from '@/shared/contracts/capture'
 import { CaptureWindowClient } from './capture-window-client'
 
 export interface DisplayMediaRequest {

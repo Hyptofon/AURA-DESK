@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseWindowsDisplayOutput,
   queryWindowsDisplayDevices
-} from '../../src/main/capture/windows-display-query'
+} from '@/main/capture/windows-display-query'
 
 describe('Windows Display Query & Output Parser', () => {
   describe('parseWindowsDisplayOutput', () => {

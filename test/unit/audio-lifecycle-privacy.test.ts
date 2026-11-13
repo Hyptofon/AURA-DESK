@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   MicrophoneCapturer,
   type MicrophoneBackend
-} from '../../src/main/capture/microphone-capturer'
+} from '@/main/capture/microphone-capturer'
 import {
   SystemLoopbackCapturer,
   type SystemLoopbackBackend
-} from '../../src/main/capture/system-loopback-capturer'
-import { IntegratedAudioSupervisor } from '../../src/main/capture/integrated-audio-supervisor'
-import type { AudioChunk, AudioDevice } from '../../src/shared/contracts/audio'
+} from '@/main/capture/system-loopback-capturer'
+import { IntegratedAudioSupervisor } from '@/main/capture/integrated-audio-supervisor'
+import type { AudioChunk, AudioDevice } from '@/shared/contracts/audio'
 
 function createFakeChunk(source: 'mic' | 'system', durationMs = 20): AudioChunk {
   const sampleCount = Math.round((16000 * durationMs) / 1000)
