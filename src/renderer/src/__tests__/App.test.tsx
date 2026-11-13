@@ -2,6 +2,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { App } from '../App'
 import type { AudioSessionState } from '@/shared/contracts/audio'
+import type { SessionStatus } from '@/shared/contracts/channels'
 
 vi.mock('../services/audio-stream-service', () => ({
   defaultAudioStreamService: {
@@ -9,15 +10,18 @@ vi.mock('../services/audio-stream-service', () => ({
     stopMicrophone: vi.fn(async () => {}),
     startSystemLoopback: vi.fn(async () => {}),
     stopSystemLoopback: vi.fn(async () => {}),
+    pauseAll: vi.fn(async () => {}),
     stopAll: vi.fn(async () => {})
   }
 }))
 
 describe('<App /> Component', () => {
   let audioStateListener: ((state: AudioSessionState) => void) | null = null
+  let sessionStatusListener: ((payload: { status: SessionStatus; error?: string }) => void) | null = null
 
   beforeEach(() => {
     audioStateListener = null
+    sessionStatusListener = null
     window.api = {
       platform: 'win32',
       version: '0.1.0',
@@ -79,6 +83,12 @@ describe('<App /> Component', () => {
         audioStateListener = cb
         return () => {
           audioStateListener = null
+        }
+      }),
+      onSessionStatusChanged: vi.fn((cb) => {
+        sessionStatusListener = cb
+        return () => {
+          sessionStatusListener = null
         }
       })
     }
@@ -388,5 +398,119 @@ describe('<App /> Component', () => {
     expect(window.api.setAudioConfig).toHaveBeenCalled()
     expect(systemCheckbox).not.toBeChecked()
     consoleSpy.mockRestore()
+  })
+
+  it('synchronizes UI session state and disables Start button when onSessionStatusChanged fires', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    const startBtn = screen.getByRole('button', { name: /Почати сесію/i })
+    expect(startBtn).toBeEnabled()
+
+    // Main process notifies that session became active
+    await act(async () => {
+      sessionStatusListener?.({ status: 'active' })
+    })
+
+    expect(screen.getByText(/Активна/i)).toBeInTheDocument()
+    expect(startBtn).toBeDisabled()
+  })
+
+  it('refreshes session state when startSession throws SESSION_ACTIVE_STOP_REQUIRED without calling stopSession', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.api.startSession = vi.fn().mockRejectedValueOnce(
+      new Error('[SESSION_ACTIVE_STOP_REQUIRED] A capture session is already active')
+    )
+    window.api.getSessionState = vi.fn()
+      .mockResolvedValueOnce({ status: 'idle' as const })
+      .mockResolvedValueOnce({ status: 'active' as const })
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    const startBtn = screen.getByRole('button', { name: /Почати сесію/i })
+    expect(startBtn).toBeEnabled()
+
+    await act(async () => {
+      fireEvent.click(startBtn)
+    })
+
+    // Must query actual session state to synchronize UI
+    expect(window.api.getSessionState).toHaveBeenCalledTimes(2)
+    expect(screen.getByText(/Активна/i)).toBeInTheDocument()
+    expect(startBtn).toBeDisabled()
+
+    // Invariant: never automatically stop active session just to hide error
+    expect(window.api.stopSession).not.toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it('does not show idle after a failed Stop', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))
+    window.api.stopSession = vi.fn().mockRejectedValueOnce(new Error('Teardown failed'))
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    expect(screen.getByText(/Активна/i)).toBeInTheDocument()
+    const stopBtn = screen.getByRole('button', { name: /Зупинити/i })
+
+    await act(async () => {
+      fireEvent.click(stopBtn)
+    })
+
+    // Invariant: Failed stop must NOT transition UI to idle
+    expect(screen.queryByText(/Очікування \(Сесія вимкнена\)/i)).not.toBeInTheDocument()
+    consoleSpy.mockRestore()
+  })
+
+  it('calls pauseAll and updates UI when pause button is clicked', async () => {
+    const { defaultAudioStreamService } = await import('../services/audio-stream-service')
+    window.api.getSessionState = vi.fn(async () => ({ status: 'active' as const }))
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    const pauseBtn = screen.getByRole('button', { name: /Пауза/i })
+    expect(pauseBtn).toBeEnabled()
+
+    await act(async () => {
+      fireEvent.click(pauseBtn)
+    })
+
+    expect(defaultAudioStreamService.pauseAll).toHaveBeenCalled()
+    expect(window.api.setAudioConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ paused: true })
+    )
+    expect(screen.getByRole('button', { name: /Продовжити/i })).toBeInTheDocument()
+  })
+
+  it('reacquires user-enabled streams on resume', async () => {
+    const { defaultAudioStreamService } = await import('../services/audio-stream-service')
+    window.api.getSessionState = vi.fn(async () => ({ status: 'paused' as const }))
+
+    await act(async () => {
+      render(<App />)
+    })
+
+    const micCheckbox = screen.getByTestId('toggle-mic')
+    await act(async () => {
+      fireEvent.click(micCheckbox)
+    })
+
+    const resumeBtn = screen.getByRole('button', { name: /Продовжити/i })
+    await act(async () => {
+      fireEvent.click(resumeBtn)
+    })
+
+    expect(defaultAudioStreamService.startMicrophone).toHaveBeenCalled()
+    expect(window.api.setAudioConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ paused: false })
+    )
   })
 })
