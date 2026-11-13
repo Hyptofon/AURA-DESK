@@ -90,6 +90,15 @@ export function detectQuestionInText(text: string): DetectionResult {
 
   // 1. Ukrainian detection
   if (language === 'uk' || language === 'unknown') {
+    if (UK_INTERROGATIVE_WORDS.includes(firstWord)) {
+      return {
+        isQuestion: true,
+        confidence: hasQuestionMark ? 0.95 : 0.85,
+        language: 'uk',
+        matchedPattern: firstWord
+      }
+    }
+
     for (const pattern of UK_REQUEST_PATTERNS) {
       if (lower.startsWith(pattern) || lower.includes(pattern)) {
         return {
@@ -100,19 +109,19 @@ export function detectQuestionInText(text: string): DetectionResult {
         }
       }
     }
-
-    if (UK_INTERROGATIVE_WORDS.includes(firstWord)) {
-      return {
-        isQuestion: true,
-        confidence: hasQuestionMark ? 0.95 : 0.85,
-        language: 'uk',
-        matchedPattern: firstWord
-      }
-    }
   }
 
   // 2. English detection
   if (language === 'en' || language === 'unknown') {
+    if (EN_INTERROGATIVE_WORDS.includes(firstWord)) {
+      return {
+        isQuestion: true,
+        confidence: hasQuestionMark ? 0.95 : 0.85,
+        language: 'en',
+        matchedPattern: firstWord
+      }
+    }
+
     for (const pattern of EN_REQUEST_PATTERNS) {
       if (lower.startsWith(pattern) || lower.includes(pattern)) {
         return {
@@ -121,15 +130,6 @@ export function detectQuestionInText(text: string): DetectionResult {
           language: 'en',
           matchedPattern: pattern
         }
-      }
-    }
-
-    if (EN_INTERROGATIVE_WORDS.includes(firstWord)) {
-      return {
-        isQuestion: true,
-        confidence: hasQuestionMark ? 0.95 : 0.85,
-        language: 'en',
-        matchedPattern: firstWord
       }
     }
   }
