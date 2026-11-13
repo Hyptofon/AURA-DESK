@@ -13,11 +13,11 @@ import {
   type SessionStatus,
   type DisplayConfiguration,
   type IpcResponse
-} from '../../shared/contracts/ipc'
-import type { AudioSessionState, AudioDevice } from '../../shared/contracts/audio'
+} from '@/shared/contracts/ipc'
+import type { AudioSessionState, AudioDevice } from '@/shared/contracts/audio'
 import type { IntegratedAudioSupervisor } from '../capture/integrated-audio-supervisor'
 import { DisplayManager } from '../displays/display-manager'
-import type { SessionState } from '../../shared/contracts/channels'
+import type { SessionState } from '@/shared/contracts/channels'
 import { SingleDisplayCapturer } from '../capture/single-display-capturer'
 import type { DualDisplayCapturer } from '../capture/dual-display-capturer'
 
