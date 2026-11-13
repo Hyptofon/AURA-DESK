@@ -28,7 +28,7 @@
 ## Milestone M3 — Transcription and question detection
 
 - [x] **P3.1** STT provider interface with fake adapter, UA/EN fixtures. (COMPLETED & VERIFIED: defined typed SpeechToTextProvider contract, 16kHz mono audio normalization with anti-aliased decimation/resampling, UA/EN speech fixtures, deterministic FakeSttProvider with abort signal handling, and VAD-governed SpeechWindowAssembler; 22 unit tests green).
-- [ ] **P3.2** Connect local `whisper.cpp` or verified remote route (per ADR).
+- [x] **P3.2** Connect local `whisper.cpp` or verified remote route (per ADR). (COMPLETED & VERIFIED: implemented WhisperCppSttProvider with 16-bit PCM RIFF WAV encoding, Windows subprocess tree termination via taskkill, abort cancellation, timeout, ephemeral temp file teardown, and fallback to local Python whisper; 9 unit tests green).
 - [ ] **P3.3** Finalized transcript segments + source/time & question candidates.
 - [ ] **P3.4** Debounce, confidence, cooldown, dedup, cancel tests.
 - [ ] **GATE-3** Demo an unplanned spoken question with a true transcript; log false positives.
