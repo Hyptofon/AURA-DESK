@@ -30,14 +30,22 @@ describe('<App /> Component', () => {
       getSessionState: async () => ({ status: 'idle' }),
       setCaptureSelection: async (selection) => ({ success: true, selection }),
       startSession: vi.fn(async () => ({ success: true, status: 'active' as const })),
-      pauseSession: vi.fn(async () => ({ success: true, status: 'paused' as const })),
-      resumeSession: vi.fn(async () => ({ success: true, status: 'active' as const })),
       stopSession: vi.fn(async () => ({ success: true, status: 'idle' as const })),
       getDisplays: vi.fn(async () => ({
         displays: [
-          { id: 'disp-1', name: 'Display 1', isPrimary: true, bounds: { x: 0, y: 0, width: 1920, height: 1080 } }
+          {
+            id: 'disp-1',
+            label: 'Display 1',
+            isPrimary: true,
+            bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+            workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1,
+            rotation: 0
+          }
         ],
-        selectedId: null
+        primaryId: 'disp-1',
+        count: 1,
+        isMultiDisplay: false
       })),
       getAudioState: async () => ({
         mic: {
