@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createDualDisplayCapturer, DUAL_CAPTURE_BUFFER_BUDGET_BYTES, PER_DISPLAY_BUFFER_BYTES } from '../../src/main/capture/dual-capture-factory'
-import type { DisplayManager } from '../../src/main/displays/display-manager'
-import type { FrameCaptureBackend, CaptureTarget } from '../../src/shared/contracts/capture'
-import type { DisplayConfiguration } from '../../src/shared/contracts/channels'
+import { createDualDisplayCapturer, DUAL_CAPTURE_BUFFER_BUDGET_BYTES, PER_DISPLAY_BUFFER_BYTES } from '@/main/capture/dual-capture-factory'
+import type { DisplayManager } from '@/main/displays/display-manager'
+import type { FrameCaptureBackend, CaptureTarget } from '@/shared/contracts/capture'
+import type { DisplayConfiguration } from '@/shared/contracts/channels'
 import { createValidCapturedFrame } from '../fixtures/image-fixtures'
 
 vi.mock('electron', () => ({ desktopCapturer: { getSources: vi.fn() }, session: {} }))
