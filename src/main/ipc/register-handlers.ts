@@ -23,6 +23,8 @@ import { DisplayManager } from '../displays/display-manager'
 import type { SessionState } from '@/shared/contracts/channels'
 import { SingleDisplayCapturer } from '../capture/single-display-capturer'
 import type { DualDisplayCapturer } from '../capture/dual-display-capturer'
+import type { TranscriptionPipeline } from '../transcription/transcription-pipeline'
+import type { TranscriptionSessionState } from '@/shared/contracts/questions'
 
 export interface IpcMainLike {
   handle(
@@ -215,6 +217,8 @@ let activeAudioSupervisor: IntegratedAudioSupervisor | null = null
 let activeAudioStateUnsubscribe: (() => void) | null = null
 let activeMicBackend: ElectronMicrophoneBackend | null = null
 let activeLoopbackBackend: ElectronLoopbackBackend | null = null
+let activeTranscriptionPipeline: TranscriptionPipeline | null = null
+let activeTranscriptionUnsubscribe: (() => void) | null = null
 let audioChunkCounter = 0
 
 export function getSingleDisplayCapturer(
@@ -243,7 +247,8 @@ export function registerIpcHandlers(
   dualDisplayCapturer?: DualDisplayCapturer,
   audioSupervisor?: IntegratedAudioSupervisor,
   micBackend?: ElectronMicrophoneBackend,
-  loopbackBackend?: ElectronLoopbackBackend
+  loopbackBackend?: ElectronLoopbackBackend,
+  transcriptionPipeline?: TranscriptionPipeline
 ): void {
   if (!validatorOrContext) {
     throw new Error(
@@ -300,10 +305,23 @@ export function registerIpcHandlers(
         }
       })
     }
+
+    if (activeTranscriptionPipeline) {
+      activeTranscriptionUnsubscribe = activeTranscriptionPipeline.onStateChanged((state) => {
+        if (!webContents.isDestroyed || !webContents.isDestroyed()) {
+          try {
+            webContents.send!(IPC_CHANNELS.TRANSCRIPTION_STATE_CHANGED, state)
+          } catch (err) {
+            console.error('Failed to forward transcription state change event:', err)
+          }
+        }
+      })
+    }
   }
 
   activeMicBackend = micBackend ?? null
   activeLoopbackBackend = loopbackBackend ?? null
+  activeTranscriptionPipeline = transcriptionPipeline ?? null
 
   ipc.handle(IPC_CHANNELS.APP_GET_INFO, async (event: unknown): Promise<IpcResponse<unknown>> => {
     const auth = validator.validate(event)
@@ -526,6 +544,9 @@ export function registerIpcHandlers(
 
       try {
         const source = runningMode === 'both' && dual ? dual : capturer
+        if (activeTranscriptionPipeline) {
+          activeTranscriptionPipeline.stop()
+        }
         const results = await Promise.allSettled([
           source.stop(),
           activeAudioSupervisor ? activeAudioSupervisor.stopAll() : Promise.resolve()
@@ -749,9 +770,44 @@ export function registerIpcHandlers(
         activeLoopbackBackend.emitChunk(chunk)
       }
 
+      if (activeTranscriptionPipeline) {
+        void activeTranscriptionPipeline.ingestChunk(chunk).catch((err) => {
+          console.error('Failed to ingest chunk in transcription pipeline:', err)
+        })
+      }
+
       return {
         ok: true,
         data: { accepted: true }
+      }
+    }
+  )
+
+  ipc.handle(
+    IPC_CHANNELS.TRANSCRIPTION_GET_STATE,
+    async (event: unknown): Promise<IpcResponse<TranscriptionSessionState>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      const defaultState: TranscriptionSessionState = {
+        latestSegment: null,
+        latestQuestion: null,
+        segmentCount: 0,
+        questionCount: 0,
+        isTranscribing: false
+      }
+
+      return {
+        ok: true,
+        data: activeTranscriptionPipeline ? activeTranscriptionPipeline.getState() : defaultState
       }
     }
   )
@@ -773,9 +829,14 @@ export function unregisterIpcHandlers(ipc: IpcMainLike = ipcMain): void {
     activeAudioStateUnsubscribe()
     activeAudioStateUnsubscribe = null
   }
+  if (activeTranscriptionUnsubscribe) {
+    activeTranscriptionUnsubscribe()
+    activeTranscriptionUnsubscribe = null
+  }
   activeAudioSupervisor = null
   activeMicBackend = null
   activeLoopbackBackend = null
+  activeTranscriptionPipeline = null
   for (const channel of Object.values(IPC_CHANNELS)) {
     try {
       ipc.removeHandler(channel)

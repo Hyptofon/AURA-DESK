@@ -13,10 +13,18 @@
 
 ## Current milestone
 
-**M3 — Transcription and question detection** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Task P3.1 in progress).
+**M3 — Transcription and question detection** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3 completed and verified; Task P3.4 in progress).
 
 ## Verified deliverables
 
+- P3.3 Finalized Transcripts & Question Candidate Pipeline (COMPLETED & VERIFIED):
+  * Defined typed QuestionCandidate and TranscriptionSessionState contracts with question detection statuses (src/shared/contracts/questions.ts).
+  * Added TRANSCRIPTION_GET_STATE and TRANSCRIPTION_STATE_CHANGED allowlisted IPC channels with typed schema validation (src/shared/contracts/channels.ts, src/shared/contracts/ipc.ts).
+  * Implemented heuristic question candidate detector supporting Ukrainian and English interrogatives (5W1H openers, auxiliary structures, trailing question marks, speech tags) with regex bounds and precedence rules (src/main/transcription/question-detector.ts).
+  * Implemented TranscriptionPipeline managing speech window batching, provider inference, timestamp-preserved transcript segmentation, and candidate detection with hard bounds (src/main/transcription/transcription-pipeline.ts).
+  * Wired TranscriptionPipeline into main window lifecycle and audio ingestion pipeline (src/main/index.ts, src/main/ipc/register-handlers.ts).
+  * Implemented Quiet Instrument diagnostic panel in renderer App and exposed typed methods on window.api (src/renderer/src/App.tsx, src/preload/index.ts).
+  * Added 12 unit tests across 2 new test suites (question-detector.test.ts [7], transcription-pipeline.test.ts [5]) and updated App.test.tsx. Total suite: 37 suites, 483 tests passing green.
 - P3.2 Local whisper.cpp Real Speech-to-Text Integration (COMPLETED & VERIFIED):
   * Implemented in-memory 16-bit PCM RIFF WAVE audio encoder (src/main/transcription/wav-encoder.ts).
   * Implemented WhisperCppSttProvider with binary/model resolution, subprocess spawning, Windows taskkill process tree teardown, cancellation via AbortSignal, timeout safeguards, and guaranteed ephemeral WAV/TXT deletion (src/main/transcription/whisper-cpp-provider.ts).

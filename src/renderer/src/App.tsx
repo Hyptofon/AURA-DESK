@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import type { AudioSessionState, AudioConfig } from '@/shared/contracts/audio'
 import type { SessionStatus } from '@/shared/contracts/channels'
+import type { TranscriptionSessionState } from '@/shared/contracts/questions'
 import { defaultAudioStreamService } from './services/audio-stream-service'
 
 export function App(): React.JSX.Element {
@@ -10,6 +11,7 @@ export function App(): React.JSX.Element {
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>('idle')
   const [audioState, setAudioState] = useState<AudioSessionState | null>(null)
   const [audioConfig, setAudioConfig] = useState<AudioConfig>({ mic: false, system: false })
+  const [transcriptionState, setTranscriptionState] = useState<TranscriptionSessionState | null>(null)
   const [canStart, setCanStart] = useState<boolean>(true) // Enabled for active session start
 
   useEffect(() => {
@@ -48,6 +50,15 @@ export function App(): React.JSX.Element {
       }).catch(() => {})
     }
 
+    // Load initial transcription state
+    if (window.api.getTranscriptionState) {
+      window.api.getTranscriptionState().then((state) => {
+        if (mounted && state) {
+          setTranscriptionState(state)
+        }
+      }).catch(() => {})
+    }
+
     // Listen for session status updates from main process
     let unsubscribeStatus: (() => void) | undefined
     if (window.api.onSessionStatusChanged) {
@@ -73,10 +84,21 @@ export function App(): React.JSX.Element {
       })
     }
 
+    // Listen for transcription state updates
+    let unsubscribeTranscription: (() => void) | undefined
+    if (window.api.onTranscriptionStateChanged) {
+      unsubscribeTranscription = window.api.onTranscriptionStateChanged((state) => {
+        if (mounted && state) {
+          setTranscriptionState(state)
+        }
+      })
+    }
+
     return () => {
       mounted = false
       unsubscribeStatus?.()
       unsubscribeAudio?.()
+      unsubscribeTranscription?.()
     }
   }, [])
 
@@ -593,6 +615,146 @@ export function App(): React.JSX.Element {
           >
             Зупинити
           </button>
+        </div>
+
+        {/* Transcription and Question Candidate Diagnostic Area */}
+        <div
+          data-testid="transcription-diagnostics"
+          style={{
+            marginTop: '24px',
+            padding: '16px',
+            backgroundColor: '#16202A',
+            borderRadius: '6px',
+            border: '1px solid #2B3A49'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.05em', color: '#A2B4C3', textTransform: 'uppercase' }}>
+              Транскрипт та розпізнавання питань
+            </span>
+            {transcriptionState?.isTranscribing && (
+              <span
+                data-testid="transcription-active-indicator"
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  backgroundColor: '#1E3A2F',
+                  color: '#5BE38C',
+                  border: '1px solid #5BE38C'
+                }}
+              >
+                ОБРОБКА МОВЛЕННЯ...
+              </span>
+            )}
+          </div>
+
+          {/* Latest Transcript Segment */}
+          <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#1D2935', borderRadius: '6px', border: '1px solid #2B3A49' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', color: '#607F95', fontWeight: 600 }}>ОСТАННІЙ СЕГМЕНТ:</span>
+              {transcriptionState?.latestSegment ? (
+                <>
+                  <span
+                    data-testid="transcript-source"
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: '#263545',
+                      color: '#7BC5F0'
+                    }}
+                  >
+                    {transcriptionState.latestSegment.source === 'mic' ? 'MIC' : 'SYSTEM'}
+                  </span>
+                  <span
+                    data-testid="transcript-language"
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: '#263545',
+                      color: '#A2B4C3'
+                    }}
+                  >
+                    {(transcriptionState.latestSegment.language ?? 'uk').toUpperCase()}
+                  </span>
+                  <span
+                    data-testid="transcript-timestamp"
+                    style={{ fontSize: '11px', color: '#607F95' }}
+                  >
+                    {new Date(transcriptionState.latestSegment.startTimestamp).toLocaleTimeString()}
+                  </span>
+                </>
+              ) : null}
+            </div>
+
+            {transcriptionState?.latestSegment ? (
+              <p
+                data-testid="transcript-text"
+                style={{ margin: 0, fontSize: '13px', lineHeight: 1.5, color: '#EAF2F8' }}
+              >
+                {transcriptionState.latestSegment.text}
+              </p>
+            ) : (
+              <p
+                data-testid="transcript-empty"
+                style={{ margin: 0, fontSize: '13px', color: '#607F95', fontStyle: 'italic' }}
+              >
+                Очікування мовлення...
+              </p>
+            )}
+          </div>
+
+          {/* Detected Question Candidate */}
+          <div style={{ padding: '12px', backgroundColor: '#1D2935', borderRadius: '6px', border: '1px solid #2B3A49' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '11px', color: '#607F95', fontWeight: 600 }}>КАНДИДАТ У ПИТАННЯ:</span>
+              {transcriptionState?.latestQuestion ? (
+                <>
+                  <span
+                    data-testid="question-candidate-badge"
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: '#2C2719',
+                      color: '#EFC278',
+                      border: '1px solid #EFC278'
+                    }}
+                  >
+                    ВИЯВЛЕНО
+                  </span>
+                  <span
+                    data-testid="question-confidence"
+                    style={{ fontSize: '11px', color: '#EFC278', fontWeight: 600 }}
+                  >
+                    {Math.round(transcriptionState.latestQuestion.confidence * 100)}%
+                  </span>
+                </>
+              ) : null}
+            </div>
+
+            {transcriptionState?.latestQuestion ? (
+              <p
+                data-testid="question-text"
+                style={{ margin: 0, fontSize: '13px', lineHeight: 1.5, color: '#EAF2F8', fontWeight: 500 }}
+              >
+                {transcriptionState.latestQuestion.text}
+              </p>
+            ) : (
+              <p
+                data-testid="question-empty"
+                style={{ margin: 0, fontSize: '13px', color: '#607F95', fontStyle: 'italic' }}
+              >
+                Питань не виявлено
+              </p>
+            )}
+          </div>
         </div>
       </section>
     </main>

@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { App } from '../App'
 import type { AudioSessionState } from '@/shared/contracts/audio'
 import type { SessionStatus } from '@/shared/contracts/channels'
+import type { TranscriptionSessionState } from '@/shared/contracts/questions'
 
 vi.mock('../services/audio-stream-service', () => ({
   defaultAudioStreamService: {
@@ -18,10 +19,12 @@ vi.mock('../services/audio-stream-service', () => ({
 describe('<App /> Component', () => {
   let audioStateListener: ((state: AudioSessionState) => void) | null = null
   let sessionStatusListener: ((payload: { status: SessionStatus; error?: string }) => void) | null = null
+  let transcriptionListener: ((state: TranscriptionSessionState) => void) | null = null
 
   beforeEach(() => {
     audioStateListener = null
     sessionStatusListener = null
+    transcriptionListener = null
     window.api = {
       platform: 'win32',
       version: '0.1.0',
@@ -79,6 +82,19 @@ describe('<App /> Component', () => {
           bufferStats: { chunkCount: 0, totalBytes: 0, newestTimestamp: null, oldestTimestamp: null }
         }
       })),
+      getTranscriptionState: vi.fn(async () => ({
+        latestSegment: null,
+        latestQuestion: null,
+        segmentCount: 0,
+        questionCount: 0,
+        isTranscribing: false
+      })),
+      onTranscriptionStateChanged: vi.fn((cb) => {
+        transcriptionListener = cb
+        return () => {
+          transcriptionListener = null
+        }
+      }),
       onAudioStateChanged: vi.fn((cb) => {
         audioStateListener = cb
         return () => {
@@ -543,5 +559,59 @@ describe('<App /> Component', () => {
     expect(window.api.setAudioConfig).toHaveBeenCalledWith(
       expect.objectContaining({ paused: false })
     )
+  })
+
+  it('renders transcription diagnostic panel in idle state with placeholders', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    expect(screen.getByTestId('transcription-diagnostics')).toBeInTheDocument()
+    expect(screen.getByTestId('transcript-empty')).toHaveTextContent('Очікування мовлення...')
+    expect(screen.getByTestId('question-empty')).toHaveTextContent('Питань не виявлено')
+  })
+
+  it('renders live transcript segment and question candidate on transcription state change', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    expect(transcriptionListener).toBeTypeOf('function')
+
+    await act(async () => {
+      transcriptionListener?.({
+        latestSegment: {
+          id: 'seg-101',
+          source: 'mic',
+          startTimestamp: 1700000000000,
+          endTimestamp: 1700000003000,
+          text: 'Що таке антигравітація?',
+          language: 'uk',
+          confidence: 0.95,
+          isFinal: true
+        },
+        latestQuestion: {
+          id: 'q-101',
+          segmentId: 'seg-101',
+          source: 'mic',
+          timestamp: 1700000003000,
+          text: 'Що таке антигравітація?',
+          language: 'uk',
+          confidence: 0.9,
+          status: 'detected'
+        },
+        segmentCount: 1,
+        questionCount: 1,
+        isTranscribing: true
+      })
+    })
+
+    expect(screen.getByTestId('transcription-active-indicator')).toHaveTextContent('ОБРОБКА МОВЛЕННЯ...')
+    expect(screen.getByTestId('transcript-source')).toHaveTextContent('MIC')
+    expect(screen.getByTestId('transcript-language')).toHaveTextContent('UK')
+    expect(screen.getByTestId('transcript-text')).toHaveTextContent('Що таке антигравітація?')
+    expect(screen.getByTestId('question-candidate-badge')).toHaveTextContent('ВИЯВЛЕНО')
+    expect(screen.getByTestId('question-confidence')).toHaveTextContent('90%')
+    expect(screen.getByTestId('question-text')).toHaveTextContent('Що таке антигравітація?')
   })
 })
