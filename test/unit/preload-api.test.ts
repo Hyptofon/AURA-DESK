@@ -125,6 +125,51 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(result).toEqual({ success: true, status: 'idle' })
     })
 
+    describe('onSessionStatusChanged subscription and cleanup', () => {
+      it('registers listener on SESSION_STATUS_CHANGED channel and delivers events to subscriber', () => {
+        const subscriber = vi.fn()
+        const unsubscribe = auraApi.onSessionStatusChanged!(subscriber)
+
+        expect(mockOn).toHaveBeenCalledWith(IPC_CHANNELS.SESSION_STATUS_CHANGED, expect.any(Function))
+        const registeredHandler = mockOn.mock.calls.find(
+          (c) => c[0] === IPC_CHANNELS.SESSION_STATUS_CHANGED
+        )?.[1]
+
+        const eventPayload = { status: 'active' as const }
+        registeredHandler({}, eventPayload)
+
+        expect(subscriber).toHaveBeenCalledTimes(1)
+        expect(subscriber).toHaveBeenCalledWith(eventPayload)
+
+        unsubscribe()
+        expect(mockRemoveListener).toHaveBeenCalledWith(
+          IPC_CHANNELS.SESSION_STATUS_CHANGED,
+          registeredHandler
+        )
+      })
+
+      it('safely catches errors thrown in subscriber callback without crashing', () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const throwingSubscriber = vi.fn().mockImplementation(() => {
+          throw new Error('Subscriber error')
+        })
+
+        const unsubscribe = auraApi.onSessionStatusChanged!(throwingSubscriber)
+        const registeredHandler = mockOn.mock.calls.find(
+          (c) => c[0] === IPC_CHANNELS.SESSION_STATUS_CHANGED
+        )?.[1]
+
+        expect(() => registeredHandler({}, { status: 'error', error: 'boom' })).not.toThrow()
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Error in onSessionStatusChanged callback:',
+          expect.any(Error)
+        )
+
+        unsubscribe()
+        consoleErrorSpy.mockRestore()
+      })
+    })
+
     it('calls DISPLAYS_GET_ALL channel and unwraps display configuration data', async () => {
       const mockConfig = {
         displays: [

@@ -22,6 +22,9 @@ export interface AuraApi {
     selection?: CaptureSelection
   ): Promise<{ success: boolean; status: SessionStatus; displayId?: string }>
   stopSession?(): Promise<{ success: boolean; status: SessionStatus }>
+  onSessionStatusChanged?(
+    callback: (event: { status: SessionStatus; error?: string }) => void
+  ): () => void
   getDisplays?(): Promise<DisplayConfiguration>
   onDisplaysChanged?(callback: (config: DisplayConfiguration) => void): () => void
   getAudioState?(): Promise<AudioSessionState>
@@ -70,6 +73,21 @@ export const auraApi: AuraApi = {
     ),
   stopSession: () =>
     invokeChannel<{ success: boolean; status: SessionStatus }>(IPC_CHANNELS.SESSION_STOP),
+  onSessionStatusChanged: (
+    callback: (event: { status: SessionStatus; error?: string }) => void
+  ): (() => void) => {
+    const listener = (_event: unknown, data: unknown) => {
+      try {
+        callback(data as { status: SessionStatus; error?: string })
+      } catch (err) {
+        console.error('Error in onSessionStatusChanged callback:', err)
+      }
+    }
+    ipcRenderer.on(IPC_CHANNELS.SESSION_STATUS_CHANGED, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.SESSION_STATUS_CHANGED, listener)
+    }
+  },
   getDisplays: () => invokeChannel<DisplayConfiguration>(IPC_CHANNELS.DISPLAYS_GET_ALL),
   onDisplaysChanged: (callback: (config: DisplayConfiguration) => void): (() => void) => {
     const listener = (_event: unknown, data: unknown) => {

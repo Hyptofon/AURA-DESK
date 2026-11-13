@@ -33,8 +33,15 @@ describe('AudioStreamService & PCM Conversion', () => {
   })
 
   describe('AudioStreamService Lifecycle', () => {
-    let mockTrack: { stop: ReturnType<typeof vi.fn>; readyState: string }
-    let mockStream: { getTracks: () => typeof mockTrack[]; active: boolean }
+    let mockAudioTrack: { stop: ReturnType<typeof vi.fn>; readyState: string }
+    let mockVideoTrack: { stop: ReturnType<typeof vi.fn>; readyState: string }
+    let mockStream: {
+      getTracks: () => typeof mockAudioTrack[]
+      getAudioTracks: () => typeof mockAudioTrack[]
+      getVideoTracks: () => typeof mockVideoTrack[]
+      removeTrack: ReturnType<typeof vi.fn>
+      active: boolean
+    }
     let mockProcessor: {
       onaudioprocess: ((e: unknown) => void) | null
       connect: ReturnType<typeof vi.fn>
@@ -49,8 +56,15 @@ describe('AudioStreamService & PCM Conversion', () => {
     }
 
     beforeEach(() => {
-      mockTrack = { stop: vi.fn(), readyState: 'live' }
-      mockStream = { getTracks: () => [mockTrack], active: true }
+      mockAudioTrack = { stop: vi.fn(), readyState: 'live' }
+      mockVideoTrack = { stop: vi.fn(), readyState: 'live' }
+      mockStream = {
+        getTracks: () => [mockAudioTrack, mockVideoTrack],
+        getAudioTracks: () => [mockAudioTrack],
+        getVideoTracks: () => [mockVideoTrack],
+        removeTrack: vi.fn(),
+        active: true
+      }
 
       mockProcessor = {
         onaudioprocess: null,
@@ -100,27 +114,88 @@ describe('AudioStreamService & PCM Conversion', () => {
       expect(service.isMicrophoneStreaming()).toBe(true)
 
       await service.stopMicrophone()
-      expect(mockTrack.stop).toHaveBeenCalled()
+      expect(mockAudioTrack.stop).toHaveBeenCalled()
       expect(mockAudioContext.close).toHaveBeenCalled()
       expect(service.isMicrophoneStreaming()).toBe(false)
     })
 
-    it('starts system loopback stream with 48000Hz stereo configuration', async () => {
+    it('starts system loopback stream with { video: true, audio: true } and discards video track immediately', async () => {
       mockAudioContext.sampleRate = 48000
       const service = new AudioStreamService()
 
       await service.startSystemLoopback()
 
       expect(navigator.mediaDevices.getDisplayMedia).toHaveBeenCalledWith({
-        audio: true,
-        video: false
+        video: true,
+        audio: true
       })
+      // Video track must be stopped and removed immediately to protect user privacy
+      expect(mockVideoTrack.stop).toHaveBeenCalledTimes(1)
+      expect(mockStream.removeTrack).toHaveBeenCalledWith(mockVideoTrack)
       expect(mockAudioContext.createScriptProcessor).toHaveBeenCalledWith(4096, 2, 2)
       expect(service.isSystemLoopbackStreaming()).toBe(true)
 
       await service.stopSystemLoopback()
-      expect(mockTrack.stop).toHaveBeenCalled()
+      expect(mockAudioTrack.stop).toHaveBeenCalled()
       expect(service.isSystemLoopbackStreaming()).toBe(false)
+    })
+
+    it('throws error and stops all tracks if no live audio track is returned by getDisplayMedia', async () => {
+      const emptyAudioStream = {
+        getTracks: () => [mockVideoTrack],
+        getAudioTracks: () => [],
+        getVideoTracks: () => [mockVideoTrack],
+        removeTrack: vi.fn(),
+        active: true
+      }
+      vi.mocked(navigator.mediaDevices.getDisplayMedia).mockResolvedValueOnce(
+        emptyAudioStream as never
+      )
+
+      const service = new AudioStreamService()
+      await expect(service.startSystemLoopback()).rejects.toThrow(
+        /No live audio track received for system loopback/
+      )
+      expect(mockVideoTrack.stop).toHaveBeenCalled()
+      expect(service.isSystemLoopbackStreaming()).toBe(false)
+    })
+
+    it('pauseAll terminates both active streams and hardware tracks cleanly', async () => {
+      const service = new AudioStreamService()
+      await service.startMicrophone()
+      await service.startSystemLoopback()
+
+      expect(service.isMicrophoneStreaming()).toBe(true)
+      expect(service.isSystemLoopbackStreaming()).toBe(true)
+
+      await service.pauseAll()
+
+      expect(service.isMicrophoneStreaming()).toBe(false)
+      expect(service.isSystemLoopbackStreaming()).toBe(false)
+      expect(mockAudioTrack.stop).toHaveBeenCalled()
+    })
+
+    it('cancels delayed stream acquisition if stopAll is called in-flight', async () => {
+      let resolveUserMedia: (stream: typeof mockStream) => void
+      const slowUserMedia = new Promise<typeof mockStream>((resolve) => {
+        resolveUserMedia = resolve
+      })
+      vi.mocked(navigator.mediaDevices.getUserMedia).mockReturnValueOnce(
+        slowUserMedia as never
+      )
+
+      const service = new AudioStreamService()
+      const startPromise = service.startMicrophone()
+
+      // Stop while start is pending
+      await service.stopAll()
+
+      // Late resolve
+      resolveUserMedia!(mockStream)
+
+      await expect(startPromise).rejects.toThrow(/Microphone acquisition was cancelled/)
+      expect(mockAudioTrack.stop).toHaveBeenCalled()
+      expect(service.isMicrophoneStreaming()).toBe(false)
     })
 
     it('stopAll terminates both active streams cleanly', async () => {
