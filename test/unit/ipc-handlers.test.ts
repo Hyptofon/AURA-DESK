@@ -908,6 +908,109 @@ describe('Main Process IPC Handlers', () => {
     })
   })
 
+  describe('Transcription & VAD Integration via IPC', () => {
+    it('evaluates VAD dynamically and delivers speech chunks to transcriptionPipeline', async () => {
+      const mockPipeline = {
+        ingestChunk: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        getState: vi.fn().mockReturnValue({ segmentCount: 0, questionCount: 0, isTranscribing: false }),
+        onStateChanged: vi.fn().mockReturnValue(() => {})
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(
+        customIpc,
+        { trustedWebContents: defaultWebContents },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockPipeline as never
+      )
+
+      const submitHandler = customIpc.handlers.get(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK)!
+
+      // Generate 128ms of loud PCM audio (above 0.015 RMS threshold)
+      const sampleCount = Math.floor((128 / 1000) * 16000)
+      const loudPcm = new Int16Array(sampleCount)
+      for (let i = 0; i < sampleCount; i++) {
+        loudPcm[i] = 10000 * Math.sin(i * 0.1)
+      }
+      const pcmBytes = new Uint8Array(loudPcm.buffer, loudPcm.byteOffset, loudPcm.byteLength)
+
+      const res = (await submitHandler(makeValidEvent(), {
+        source: 'mic',
+        data: pcmBytes,
+        timestamp: 1700000000000,
+        durationMs: 128,
+        sampleRate: 16000,
+        channels: 1
+      })) as IpcResponse<{ accepted: boolean }>
+
+      expect(res.ok).toBe(true)
+      expect(mockPipeline.ingestChunk).toHaveBeenCalledTimes(1)
+      const passedChunk = mockPipeline.ingestChunk.mock.calls[0][0]
+      expect(passedChunk.source).toBe('mic')
+      expect(passedChunk.rms).toBeGreaterThan(0.015)
+      expect(passedChunk.isSpeech).toBe(true)
+    })
+
+    it('propagates pause and resume to transcriptionPipeline via AUDIO_SET_CONFIG', async () => {
+      const mockSupervisor = {
+        setAudioConfig: vi.fn().mockResolvedValue({
+          mic: { status: 'paused' },
+          system: { status: 'paused' }
+        }),
+        getState: vi.fn().mockReturnValue({}),
+        onStateChanged: vi.fn().mockReturnValue(() => {})
+      }
+
+      const mockPipeline = {
+        ingestChunk: vi.fn(),
+        stop: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        getState: vi.fn().mockReturnValue({}),
+        onStateChanged: vi.fn().mockReturnValue(() => {})
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(
+        customIpc,
+        { trustedWebContents: defaultWebContents },
+        undefined,
+        undefined,
+        undefined,
+        mockSupervisor as never,
+        undefined,
+        undefined,
+        mockPipeline as never
+      )
+
+      const configHandler = customIpc.handlers.get(IPC_CHANNELS.AUDIO_SET_CONFIG)!
+
+      // Pause audio
+      await configHandler(makeValidEvent(), {
+        mic: true,
+        system: true,
+        paused: true
+      })
+      expect(mockPipeline.pause).toHaveBeenCalledTimes(1)
+
+      // Resume audio
+      await configHandler(makeValidEvent(), {
+        mic: true,
+        system: true,
+        paused: false
+      })
+      expect(mockPipeline.resume).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('unregisters handlers cleanly on teardown', () => {
     unregisterIpcHandlers(mockIpc)
     expect(mockIpc.handlers.size).toBe(0)
