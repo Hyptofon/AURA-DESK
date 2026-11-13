@@ -2,7 +2,7 @@ import type {
   CapturedFrame,
   FrameBufferOptions,
   FrameBufferStats
-} from '../../shared/contracts/capture'
+} from '@/shared/contracts/capture'
 
 const DEFAULT_MAX_FRAMES = 60 // 120 seconds at 2s interval
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024 // 50 MB RAM budget
