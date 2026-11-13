@@ -8,6 +8,7 @@ import {
   type DisplayConfiguration,
   type IpcResponse
 } from '../shared/contracts/channels'
+import type { AudioConfig, AudioSessionState, AudioDevice } from '../shared/contracts/audio'
 
 export interface AuraApi {
   platform: string
@@ -23,6 +24,10 @@ export interface AuraApi {
   stopSession?(): Promise<{ success: boolean; status: SessionStatus }>
   getDisplays?(): Promise<DisplayConfiguration>
   onDisplaysChanged?(callback: (config: DisplayConfiguration) => void): () => void
+  getAudioState?(): Promise<AudioSessionState>
+  setAudioConfig?(config: AudioConfig): Promise<AudioSessionState>
+  getAudioDevices?(): Promise<AudioDevice[]>
+  onAudioStateChanged?(callback: (state: AudioSessionState) => void): () => void
 }
 
 /**
@@ -69,6 +74,23 @@ export const auraApi: AuraApi = {
     ipcRenderer.on(IPC_CHANNELS.DISPLAYS_CHANGED, listener)
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.DISPLAYS_CHANGED, listener)
+    }
+  },
+  getAudioState: () => invokeChannel<AudioSessionState>(IPC_CHANNELS.AUDIO_GET_STATE),
+  setAudioConfig: (config: AudioConfig) =>
+    invokeChannel<AudioSessionState>(IPC_CHANNELS.AUDIO_SET_CONFIG, config),
+  getAudioDevices: () => invokeChannel<AudioDevice[]>(IPC_CHANNELS.AUDIO_GET_DEVICES),
+  onAudioStateChanged: (callback: (state: AudioSessionState) => void): (() => void) => {
+    const listener = (_event: unknown, data: unknown) => {
+      try {
+        callback(data as AudioSessionState)
+      } catch (err) {
+        console.error('Error in onAudioStateChanged callback:', err)
+      }
+    }
+    ipcRenderer.on(IPC_CHANNELS.AUDIO_STATE_CHANGED, listener)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.AUDIO_STATE_CHANGED, listener)
     }
   }
 }
