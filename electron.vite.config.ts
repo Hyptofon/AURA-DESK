@@ -6,6 +6,11 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     assetsInclude: ['**/*.html'],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src')
+      }
+    },
     build: {
       rollupOptions: {
         input: {
@@ -16,6 +21,11 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src')
+      }
+    },
     build: {
       rollupOptions: {
         input: {
@@ -31,6 +41,12 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     plugins: [react()],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src'),
+        '@renderer': resolve(__dirname, 'src/renderer/src')
+      }
+    },
     build: {
       rollupOptions: {
         input: {
