@@ -4,7 +4,7 @@ import {
   isWindowOverlappingDisplay,
   evaluateRecursionRisk,
   type BrowserWindowLike
-} from '../../src/main/capture/overlay-exclusion'
+} from '@/main/capture/overlay-exclusion'
 
 describe('Overlay Exclusion & Recursion Prevention', () => {
   describe('applyContentProtection', () => {
