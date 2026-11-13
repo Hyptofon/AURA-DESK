@@ -168,7 +168,31 @@ export class MicrophoneCapturer {
     this.setStatus('idle')
   }
 
+  /**
+   * Pauses microphone capture without tearing down the underlying hardware connection.
+   * Incoming audio chunks are discarded immediately to guarantee privacy.
+   */
+  pause(): void {
+    if (this.status === 'active') {
+      this.vad.reset()
+      this.setStatus('paused')
+    }
+  }
+
+  /**
+   * Resumes microphone capture from paused state.
+   */
+  resume(): void {
+    if (this.status === 'paused') {
+      this.setStatus('active')
+    }
+  }
+
   private handleIncomingChunk(rawChunk: AudioChunk): void {
+    if (this.status !== 'active') {
+      return
+    }
+
     // Process chunk through VAD using Int16 view of PCM bytes
     const sampleCount = Math.floor(rawChunk.data.byteLength / 2)
     const int16Samples = new Int16Array(
