@@ -17,6 +17,14 @@
 
 ## Verified deliverables
 
+- M3 Adversarial Self-Review & Robustness Fixes (COMPLETED & VERIFIED):
+  * Identified and fixed dynamic VAD evaluation in IPC audio chunk ingestion (`AUDIO_SUBMIT_CHUNK`), resolving critical live-audio speech detection bypass.
+  * Corrected Python Whisper fallback output file resolution (`<runId>.txt`), safe taskkill child process error handling, and stdout banner filtering (`src/main/transcription/whisper-cpp-provider.ts`).
+  * Enforced pending candidate deduplication in `QuestionControls`, preventing cross-source duplicates from hijacking active debounce timers.
+  * Enhanced question candidate detector to recognize conversational prefixes (`А що...`, `І чому...`, `So what...`), polite Ukrainian requests (`підкажіть`, `поясніть`, `розкажіть`, `допоможіть`), and quoted sentences (`«...»`, `"..."`).
+  * Implemented session generation tokens in `TranscriptionPipeline` to discard late STT results after stop/pause, added `pause()` and `resume()` lifecycle hooks, and enforced complete zero-retention buffer cleanup on session stop.
+  * Synchronized renderer UI diagnostic panel to reset transcription state upon session teardown.
+  * Total suite: 38 test suites, 516 tests passing green (15 new regression tests added).
 - P3.4 Question Detection Controls (COMPLETED & VERIFIED):
   * Implemented QuestionControls enforcing configurable confidence filtering (minConfidence default 0.75), debounce window settling (default 1200ms), cooldown intervals (default 5000ms), cross-source deduplication, and bounded history retention (src/main/transcription/question-controls.ts).
   * Added instant debounce timer cancellation and queue flush on stop() and pause() to prevent unexpected late candidate emissions.
