@@ -7,8 +7,8 @@ import {
   type SessionState,
   type DisplayConfiguration,
   type IpcResponse
-} from '../shared/contracts/channels'
-import type { AudioConfig, AudioSessionState, AudioDevice } from '../shared/contracts/audio'
+} from '@/shared/contracts/channels'
+import type { AudioConfig, AudioSessionState, AudioDevice } from '@/shared/contracts/audio'
 
 export interface AuraApi {
   platform: string
