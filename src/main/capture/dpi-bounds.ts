@@ -47,15 +47,26 @@ export function matchesDisplayBounds(
     return true
   }
 
-  // Check physical bounds match when scale factor is present and != 1
+  // Check physical and logical scaled bounds match when scale factor is present and != 1
   const scaleFactor = target.scaleFactor
   if (scaleFactor && scaleFactor > 0 && Math.abs(scaleFactor - 1.0) > 0.001) {
     const physical = toPhysicalBounds(target.bounds, scaleFactor)
-    return (
+    const matchesPhysical =
       candidate.x === physical.x &&
       candidate.y === physical.y &&
       candidate.width === physical.width &&
       candidate.height === physical.height
+
+    if (matchesPhysical) {
+      return true
+    }
+
+    const logical = toLogicalBounds(target.bounds, scaleFactor)
+    return (
+      candidate.x === logical.x &&
+      candidate.y === logical.y &&
+      candidate.width === logical.width &&
+      candidate.height === logical.height
     )
   }
 
