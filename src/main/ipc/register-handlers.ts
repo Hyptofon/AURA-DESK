@@ -516,6 +516,9 @@ export function registerIpcHandlers(
       try {
         const source = runningMode === 'both' && dual ? dual : capturer
         await source.stop()
+        if (activeAudioSupervisor) {
+          await activeAudioSupervisor.stopAll()
+        }
         runningMode = null
         currentSessionStatus = 'idle'
         const responsePayload = { success: true, status: source.getStatus() }
