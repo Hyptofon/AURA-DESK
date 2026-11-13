@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 30 suites, 406 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 31 suites, 424 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines).
 - [ ] Product acceptance criteria verified.
 
@@ -108,7 +108,8 @@
   * Preload Cleanup Verification: added invariant test in `test/unit/production-invariants.test.ts` verifying that `onAudioStateChanged` returns an unsubscribe handler calling `removeListener`.
   * Full TypeScript Compilation Coverage for Tests: added `test/**/*` to `tsconfig.node.json`, eliminating a blind spot where `npm run typecheck` previously checked only `src/`. Resolved all static type errors across test suites (`electron-loopback-backend.test.ts`, `audio-ipc.test.ts`, `ipc-contracts.test.ts`, `ipc-handlers.test.ts`, `mediastream-pipeline.test.ts`). Recorded Lesson 21 in `docs/ENGINEERING_LESSONS.md`.
   * Project-Wide @ Path Alias Migration: configured `@/*` mapping to `src/*` across `tsconfig.node.json`, `tsconfig.web.json`, `electron.vite.config.ts`, and `vitest.config.ts`. Replaced fragile relative `../../` imports with clean `@/` path aliases across all 50+ source and test files with individual atomic commits.
-  * Quality Status: 30 test suites, 406 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
+  * Real Audio Stream Ingestion & Session Consent Alignment: implemented `AudioStreamService` (`src/renderer/src/services/audio-stream-service.ts`) converting Float32 Web Audio samples to Int16 PCM and streaming over `aura:audio-submit-chunk` to main process capturers; wired Chromium media permissions in `src/main/index.ts`; aligned user consent in `src/renderer/src/App.tsx` so checkbox toggles in `idle` mode configure session intent without touching hardware or showing badges until explicit session start via «Почати сесію»; verified dynamic toggling and full teardown on «Зупинити». Recorded Lesson 22 in `docs/ENGINEERING_LESSONS.md`.
+  * Quality Status: 31 test suites, 424 tests passing green (100% pass rate). Zero typecheck errors, zero lint warnings, clean build.
 
 ### Capture Backend Architecture & Trade-Offs Analysis:
 1. **Architecture 1 — Electron `desktopCapturer` in Main process**:
@@ -170,18 +171,18 @@
 3. **Consolidated Windows Audio Verification (GATE-2):**
    - **Step 1: Launch Application:**
      Run `npm run dev` in PowerShell. The AURA DESK Quiet Instrument window opens.
-   - **Step 2: Verify Initial Privacy State:**
-     Observe session status shows "Очікування (Сесія вимкнена)". Verify NO recording badges are displayed on screen.
-   - **Step 3: Microphone Capture & VAD Test:**
-     Check the "Мікрофон" checkbox.
-     *Observation*: The UI displays the red `MIC RECORDING` badge with status dot `#E86D70`.
+   - **Step 2: Verify Initial Privacy State & Idle Toggle Consent:**
+     Observe session status shows "Очікування (Сесія вимкнена)". The «Почати сесію» button is enabled (with displays detected). Check the "Мікрофон" and "Системне аудіо" checkboxes.
+     *Observation*: Checkboxes are checked (configuring desired intent), but NO recording badges appear, no hardware streams open, and backend remains in `idle`.
+   - **Step 3: Session Start & Live Microphone Capture:**
+     Click «Почати сесію».
+     *Observation*: Session transitions to active. The UI immediately displays the red `MIC RECORDING` badge with status dot `#E86D70`.
      Open DevTools (`Ctrl+Shift+I`) and run:
      `await window.api.getAudioState()`
      *Observation*: `mic.status === 'active'`, `mic.enabled === true`, `mic.bufferStats.chunkCount > 0`. Speak into the microphone and check `mic.vad.isSpeech === true`.
    - **Step 4: Windows System Audio Loopback Test:**
      Play audio in Windows (e.g., YouTube video or Spotify in headphones/speakers).
-     Check the "Системне аудіо" checkbox.
-     *Observation*: The UI displays the amber `SYSTEM AUDIO CAPTURED` badge.
+     *Observation*: The UI displays the amber `SYSTEM AUDIO CAPTURED` badge alongside the mic badge.
      In DevTools, run:
      `await window.api.getAudioState()`
      *Observation*: `system.status === 'active'`, `system.bufferStats.chunkCount > 0`, system loopback chunks are monotonically recorded.
