@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   MicrophoneCapturer,
   type MicrophoneBackend
-} from '../../src/main/capture/microphone-capturer'
-import type { AudioChunk, AudioDevice } from '../../src/shared/contracts/audio'
+} from '@/main/capture/microphone-capturer'
+import type { AudioChunk, AudioDevice } from '@/shared/contracts/audio'
 
 function createFakePcmChunk(rmsApprox: number, durationMs = 20): AudioChunk {
   // 16000 Hz, 16-bit mono -> 320 samples for 20ms = 640 bytes
