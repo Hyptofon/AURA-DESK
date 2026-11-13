@@ -146,7 +146,9 @@ export class SpeechWindowAssembler {
       const int16View =
         c.data.byteOffset % 2 === 0
           ? new Int16Array(c.data.buffer, c.data.byteOffset, sampleCount)
-          : new Int16Array(c.data.slice().buffer, 0, sampleCount)
+          : new Int16Array(
+              c.data.buffer.slice(c.data.byteOffset, c.data.byteOffset + sampleCount * 2)
+            )
 
       mergedData.set(int16View, offset)
       offset += sampleCount
