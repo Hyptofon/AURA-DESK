@@ -7,6 +7,7 @@ import { DisplayManager, forwardDisplayEvents } from './displays/display-manager
 import { SingleDisplayCapturer } from './capture/single-display-capturer'
 import { createDualDisplayCapturer } from './capture/dual-capture-factory'
 import type { DualDisplayCapturer } from './capture/dual-display-capturer'
+import { applyContentProtection } from './capture/overlay-exclusion'
 
 let mainWindow: BrowserWindow | null = null
 let displayManager: DisplayManager | null = null
@@ -35,6 +36,9 @@ function createWindow(): void {
       allowRunningInsecureContent: false
     }
   })
+
+  // Prevent application window and overlays from recursive capture where supported by DWM
+  applyContentProtection(mainWindow, true)
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()

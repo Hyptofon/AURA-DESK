@@ -1,5 +1,6 @@
 import type { DisplayInfo } from '../../shared/contracts/channels'
 import type { WindowsDisplayDevice } from './windows-display-query'
+import { matchesDisplayBounds } from './dpi-bounds'
 
 export interface DesktopCapturerSourceLike {
   id: string
@@ -97,12 +98,8 @@ export function resolveSourceForDisplay(
       )
     }
 
-    const displaysWithSameBounds = allDisplays.filter(
-      (d) =>
-        d.bounds.x === targetDisplay.bounds.x &&
-        d.bounds.y === targetDisplay.bounds.y &&
-        d.bounds.width === targetDisplay.bounds.width &&
-        d.bounds.height === targetDisplay.bounds.height
+    const displaysWithSameBounds = allDisplays.filter((d) =>
+      matchesDisplayBounds(d.bounds, targetDisplay)
     )
 
     if (displaysWithSameBounds.length > 1) {
@@ -111,12 +108,8 @@ export function resolveSourceForDisplay(
       )
     }
 
-    const matchedDevices = windowsDevices.filter(
-      (wd) =>
-        wd.bounds.x === targetDisplay.bounds.x &&
-        wd.bounds.y === targetDisplay.bounds.y &&
-        wd.bounds.width === targetDisplay.bounds.width &&
-        wd.bounds.height === targetDisplay.bounds.height
+    const matchedDevices = windowsDevices.filter((wd) =>
+      matchesDisplayBounds(wd.bounds, targetDisplay)
     )
 
     if (matchedDevices.length > 1) {

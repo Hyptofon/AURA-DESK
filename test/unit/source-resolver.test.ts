@@ -333,5 +333,36 @@ describe('Display Source Resolver', () => {
         )
       ).toThrow(/invalid Windows device index/)
     })
+
+    it('successfully resolves source when display is scaled (125% DPI scaling) and Windows device reports physical pixels', () => {
+      const scaledDisplay: DisplayInfo = {
+        ...realWindowsDisplays[0],
+        id: 'scaled-display-1',
+        bounds: { x: 0, y: 0, width: 1536, height: 864 },
+        scaleFactor: 1.25
+      }
+      const physicalDevices = [
+        {
+          deviceName: '\\\\.\\DISPLAY1',
+          displayIndex: 0,
+          bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+          isPrimary: true
+        }
+      ]
+
+      const result = resolveSourceForDisplay(
+        'scaled-display-1',
+        [scaledDisplay],
+        realWindowsSources,
+        physicalDevices
+      )
+
+      expect(result).toEqual({
+        sourceId: 'screen:0:0',
+        sourceName: 'Екран 1',
+        displayId: 'scaled-display-1',
+        strategy: 'windows_device_bounds_match'
+      })
+    })
   })
 })
