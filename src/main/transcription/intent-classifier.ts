@@ -9,7 +9,7 @@ import type {
   SupportedClassifierModel
 } from '../../shared/contracts/questions'
 import type { ConversationContextSnapshot } from './conversation-context'
-import type { LocalIntentAnalysis } from './local-intent-analyzer'
+import type { LocalIntentAnalysisResult } from './local-intent-analyzer'
 
 export const CONVERSATION_INTENT_VALUES: readonly [ConversationIntent, ...ConversationIntent[]] = [
   'direct_question',
@@ -94,7 +94,7 @@ export const SEMANTIC_CLASSIFICATION_JSON_SCHEMA = {
 export interface IntentClassificationInput {
   utterance: AssembledUtterance
   context: ConversationContextSnapshot
-  localAnalysis: LocalIntentAnalysis
+  localAnalysis: LocalIntentAnalysisResult
   signal?: AbortSignal
 }
 
