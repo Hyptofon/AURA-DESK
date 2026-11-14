@@ -87,7 +87,9 @@ export class QuestionControls {
 
   /**
    * Determines whether `incoming` is an incremental continuation or revision of `existing`
-   * (e.g. "Що таке" -> "Що таке штучний інтелект?").
+   * (e.g. "Що таке" -> "Що таке штучний інтелект?" or "Що таке штуч" -> "Що таке штучний інтелект?").
+   * Never treats two distinct complete questions sharing only a polite/interrogative prefix
+   * (e.g. "Can you explain closures?" vs "Can you explain promises?") as continuations.
    */
   public isContinuation(existingNormalized: string, incomingNormalized: string): boolean {
     if (!existingNormalized || !incomingNormalized) return false
@@ -102,17 +104,21 @@ export class QuestionControls {
 
     const existingWords = existingNormalized.split(' ')
     const incomingWords = incomingNormalized.split(' ')
-    const minLen = Math.min(existingWords.length, incomingWords.length)
-    if (minLen >= 2) {
-      let sharedPrefix = 0
-      for (let i = 0; i < minLen; i++) {
-        if (existingWords[i] === incomingWords[i]) {
-          sharedPrefix += 1
-        } else {
+    if (incomingWords.length > existingWords.length && existingWords.length >= 2) {
+      let allButLastMatch = true
+      for (let i = 0; i < existingWords.length - 1; i++) {
+        if (existingWords[i] !== incomingWords[i]) {
+          allButLastMatch = false
           break
         }
       }
-      if (sharedPrefix >= Math.max(2, Math.ceil(minLen * 0.75))) {
+      const lastExisting = existingWords[existingWords.length - 1]
+      const correspondingIncoming = incomingWords[existingWords.length - 1]
+      if (
+        allButLastMatch &&
+        lastExisting.length >= 2 &&
+        correspondingIncoming.startsWith(lastExisting)
+      ) {
         return true
       }
     }
