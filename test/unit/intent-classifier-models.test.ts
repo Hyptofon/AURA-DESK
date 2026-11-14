@@ -44,7 +44,7 @@ describe('intent-classifier-models', () => {
     expect(spec.hasZdrEndpoint).toBe(false)
 
     // Fallback for cast unknown model
-    const fallback = getModelSpec('unknown-model' as any)
+    const fallback = getModelSpec('unknown-model' as unknown as import('@/shared/contracts/questions').SupportedClassifierModel)
     expect(fallback.id).toBe(DEFAULT_CLASSIFIER_MODEL)
   })
 
