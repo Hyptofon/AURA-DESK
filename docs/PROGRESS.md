@@ -1,21 +1,32 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-13. **Current status:** `M0 COMPLETED, M1 COMPLETED, M2 COMPLETED & VERIFIED (GATE-2 CLOSED WITH REAL HARDWARE EVIDENCE), M3 IN PROGRESS`.
+**Last verified:** 2026-11-14. **Current status:** `M0 COMPLETED, M1 COMPLETED, M2 COMPLETED & VERIFIED (GATE-2 CLOSED WITH REAL HARDWARE EVIDENCE), M3 IMPLEMENTED & BENCHMARK-VERIFIED (AWAITING GATE-3 LIVE SPOKEN DEMO)`.
 
 ## Summary
 
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
-- [x] Runtime code implemented (M0, M1, and M2 complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 38 suites, 525 tests).
+- [x] Runtime code implemented (M0, M1, M2, and M3 Conversation Intent Detection Pipeline complete modular implementation).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 41 suites, 564 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
 - [ ] Product acceptance criteria verified.
 
 ## Current milestone
 
-**M3 — Transcription and question detection** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3, P3.4 completed and verified; GATE-3 verification checklist ready).
+**M3 — Transcription and Conversation Intent Detection Pipeline** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3, P3.4 + Full M3 Conversation Intent Pipeline & 160-Example Benchmark completed and verified; GATE-3 manual verification checklist ready).
 
 ## Verified deliverables
+
+- M3 Conversation Intent Detection Pipeline & Evaluation Benchmark (COMPLETED & VERIFIED):
+  * Upgraded M3 from shallow single-segment regex matching to a multi-stage Conversation Intent Detection Pipeline (`UtteranceAssembler` -> `ConversationContext` -> `LocalIntentAnalyzer` -> optional opt-in `OpenRouterIntentClassifier` -> `IntentDecisionEngine` -> `QuestionControls`).
+  * Implemented `UtteranceAssembler` (`src/main/transcription/utterance-assembler.ts`) merging fragmented STT segments from the same audio source within 1800ms, removing boundary word overlaps, and enforcing hard bounds (6 fragments, 12s duration, 600 chars).
+  * Implemented `ConversationContext` (`src/main/transcription/conversation-context.ts`) maintaining an 8-turn sliding window with 90s TTL and complete reset on session stop.
+  * Implemented `LocalIntentAnalyzer` (`src/main/transcription/local-intent-analyzer.ts`) supporting Ukrainian, English, and mixed technical speech across 11 intent categories (`direct_question`, `indirect_question`, `explanation_request`, `help_request`, `clarification_request`, `contextual_follow_up`, `statement`, `reported_question`, `rhetorical_question`, `other`, `uncertain`), punctuation-free STT output, elliptical follow-ups, and reported/quoted/rhetorical speech suppression.
+  * Implemented privileged `OpenRouterKeyStore` (`src/main/security/openrouter-key-store.ts`) with Electron `safeStorage` encryption and secret token redaction (`redactSecrets`), plus `OpenRouterIntentClassifier` (`src/main/transcription/openrouter-intent-classifier.ts`) disabled by default (`enabled: false, userConsentGranted: false`), using `google/gemini-3.1-flash-lite` with `reasoning: { effort: 'none', exclude: true }`, strict JSON Schema validation, `<untrusted_transcript>` prompt-injection isolation, and hard session budget/request caps ($0.25 / 100 requests).
+  * Implemented `IntentDecisionEngine` (`src/main/transcription/intent-decision-engine.ts`), upgraded `QuestionControls` (`src/main/transcription/question-controls.ts`) with `suggest`/`ready` decision awareness and drop diagnostics, and upgraded `TranscriptionPipeline` (`src/main/transcription/transcription-pipeline.ts`) with a 6-window bounded STT backpressure queue and forced-split continuation settling.
+  * Created a 160-example evaluation dataset (`test/fixtures/intent-evaluation-dataset.ts`, 80 dev / 80 held-out across 20 categories) and `IntentEvaluator` (`src/main/transcription/intent-evaluator.ts`), verifying in `test/unit/intent-evaluation-benchmark.test.ts` that System B (local) and System C (hybrid) substantially outperform Baseline A on Precision, Recall, F1, False Positive Rate, Indirect Request Recall, Contextual Follow-Up Recall, and Reported Speech False Positive Rate ($0.00 live API cost).
+  * Wired IPC handler `TRANSCRIPTION_SET_CLASSIFIER_CONFIG`, preload `setClassifierConfig`, and Quiet Instrument UI diagnostics (`src/renderer/src/App.tsx`).
+  * Total suite: 41 test suites, 564 tests passing green.
 
 - M3 Skeptic Review & Architectural Hardening (COMPLETED & VERIFIED):
   * Identified and fixed IPC event registration order bug where `activeTranscriptionPipeline` was assigned after the `if (webContents?.send)` subscription block, preventing `TRANSCRIPTION_STATE_CHANGED` events from being forwarded to the renderer.
