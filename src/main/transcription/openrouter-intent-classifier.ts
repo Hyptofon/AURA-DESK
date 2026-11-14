@@ -273,6 +273,11 @@ export class OpenRouterIntentClassifier implements IntentClassifier {
         signal: timeoutController.signal
       })
 
+      if (input.signal?.aborted) {
+        this.lastError = 'aborted'
+        return null
+      }
+
       if (response.status === 402) {
         this.creditsExhausted = true
         this.lastError = 'openrouter_credits_exhausted_402'
@@ -293,6 +298,11 @@ export class OpenRouterIntentClassifier implements IntentClassifier {
           completion_tokens?: number
           cost?: number
         }
+      }
+
+      if (input.signal?.aborted) {
+        this.lastError = 'aborted'
+        return null
       }
 
       const rawContent = payload.choices?.[0]?.message?.content
