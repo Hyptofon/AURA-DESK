@@ -14,13 +14,9 @@ Decision rubrics:
 - SUGGEST: Utterances expressing hesitation, confusion, or subtle uncertainty that might benefit from proactive assistance, but not a direct command.
 - IGNORE: Ordinary statements, quotations, reported speech (e.g. "he asked why..."), rhetorical remarks, conversational filler, or self-talk not requesting assistant action.
 
-You MUST respond ONLY with a raw JSON object adhering to:
-{
-  "decision": "IGNORE" | "SUGGEST" | "READY",
-  "intent": "direct_question" | "indirect_question" | "explanation_request" | "help_request" | "clarification_request" | "contextual_follow_up" | "statement" | "reported_question" | "rhetorical_question" | "other",
-  "reasoning": "brief 1-sentence rationale"
-}
-Do not output markdown code blocks or explanatory prose outside the JSON.`
+You MUST respond ONLY with a minimal JSON object adhering to:
+{"decision": "IGNORE" | "SUGGEST" | "READY", "intent": "direct_question" | "indirect_question" | "explanation_request" | "help_request" | "clarification_request" | "contextual_follow_up" | "statement" | "reported_question" | "rhetorical_question" | "other"}
+Do not output markdown code blocks, reasoning text, or extra tokens outside the JSON.`
 
 export class ChatCompletionsBenchmarkAdapter implements IntentBenchmarkAdapter {
   public readonly endpointUrl = 'https://openrouter.ai/api/v1/chat/completions'
@@ -52,7 +48,7 @@ export class ChatCompletionsBenchmarkAdapter implements IntentBenchmarkAdapter {
         { role: 'system', content: CHAT_SYSTEM_PROMPT },
         { role: 'user', content: userMessageContent }
       ],
-      max_tokens: 150,
+      max_tokens: 300,
       temperature: 0.1
     }
 
@@ -97,16 +93,22 @@ export class ChatCompletionsBenchmarkAdapter implements IntentBenchmarkAdapter {
       try {
         parsed = JSON.parse(cleanedJson)
       } catch {
-        return {
-          caseId: benchmarkCase.id,
-          modelId: this.modelId,
-          expectedDecision: benchmarkCase.expectedDecision,
-          predictedDecision: null,
-          rawModelOutput: data,
-          decisionEvidence: { rawContent },
-          durationMs,
-          success: false,
-          error: `JSON_PARSE_ERROR: Failed to parse "${rawContent.slice(0, 100)}"`
+        const matchDecision = rawContent.match(/"decision"\s*:\s*"(READY|SUGGEST|IGNORE)"/i)
+        const matchIntent = rawContent.match(/"intent"\s*:\s*"([a-zA-Z_]+)"/i)
+        if (matchDecision) {
+          parsed = { decision: matchDecision[1].toUpperCase(), intent: matchIntent?.[1] }
+        } else {
+          return {
+            caseId: benchmarkCase.id,
+            modelId: this.modelId,
+            expectedDecision: benchmarkCase.expectedDecision,
+            predictedDecision: null,
+            rawModelOutput: data,
+            decisionEvidence: { rawContent },
+            durationMs,
+            success: false,
+            error: `JSON_PARSE_ERROR: Failed to parse "${rawContent.slice(0, 100)}"`
+          }
         }
       }
 
