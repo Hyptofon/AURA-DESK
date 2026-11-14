@@ -7,7 +7,6 @@ import {
   type CaptureSelection
 } from '@/shared/contracts/channels'
 import { DisplayConfigurationSchema } from '@/shared/contracts/ipc'
-import { getCurrentCaptureSelection } from '../ipc/register-handlers'
 
 export interface ElectronDisplayLike {
   id: number
@@ -51,7 +50,7 @@ export class DisplayManager {
 
   constructor(
     screenApi: ScreenLike = screen,
-    getCaptureSelection: () => CaptureSelection = getCurrentCaptureSelection
+    getCaptureSelection: () => CaptureSelection = () => ({ mode: 'both' })
   ) {
     this.screenApi = screenApi
     this.getCaptureSelection = getCaptureSelection
