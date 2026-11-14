@@ -7,7 +7,7 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, M2, and M3 Conversation Intent Detection Pipeline complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 41 suites, 564 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 41 suites, 568 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
 - [ ] Product acceptance criteria verified.
 
@@ -26,7 +26,8 @@
   * Implemented `IntentDecisionEngine` (`src/main/transcription/intent-decision-engine.ts`), upgraded `QuestionControls` (`src/main/transcription/question-controls.ts`) with `suggest`/`ready` decision awareness and drop diagnostics, and upgraded `TranscriptionPipeline` (`src/main/transcription/transcription-pipeline.ts`) with a 6-window bounded STT backpressure queue and forced-split continuation settling.
   * Created a 160-example evaluation dataset (`test/fixtures/intent-evaluation-dataset.ts`, 80 dev / 80 held-out across 20 categories) and `IntentEvaluator` (`src/main/transcription/intent-evaluator.ts`), verifying in `test/unit/intent-evaluation-benchmark.test.ts` that System B (local) and System C (hybrid) substantially outperform Baseline A on Precision, Recall, F1, False Positive Rate, Indirect Request Recall, Contextual Follow-Up Recall, and Reported Speech False Positive Rate ($0.00 live API cost).
   * Wired IPC handler `TRANSCRIPTION_SET_CLASSIFIER_CONFIG`, preload `setClassifierConfig`, and Quiet Instrument UI diagnostics (`src/renderer/src/App.tsx`).
-  * Total suite: 41 test suites, 564 tests passing green.
+  * Resolved 4 post-implementation review defects: (1) isolated per-source (`mic` vs `system`) utterance settle timers and guarded against premature forced-split flushing while continuation speech is actively accumulating or in-flight in STT; (2) tracked all concurrent in-flight classifier `AbortController` instances in a `Set` and cleared `isTranscribing` immediately after STT completion before entering `isClassifying`; (3) refined `QuestionControls.isContinuation` so distinct questions sharing a polite/interrogative prefix (`"Can you explain closures?"` vs `"Can you explain promises?"`) do not overwrite each other; and (4) added post-`await` `input.signal?.aborted` guards in `OpenRouterIntentClassifier`.
+  * Total suite: 41 test suites, 568 tests passing green.
 
 - M3 Skeptic Review & Architectural Hardening (COMPLETED & VERIFIED):
   * Identified and fixed IPC event registration order bug where `activeTranscriptionPipeline` was assigned after the `if (webContents?.send)` subscription block, preventing `TRANSCRIPTION_STATE_CHANGED` events from being forwarded to the renderer.

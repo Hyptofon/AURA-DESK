@@ -234,6 +234,47 @@ describe('OpenRouterIntentClassifier (Hermetic Fake Fetch)', () => {
     })
     expect(abortedRes).toBeNull()
     expect(classifier.getStatus().lastError).toBe('aborted')
+
+    // Test AbortSignal aborted while fetchFn resolves without throwing
+    const inFlightAbort = new AbortController()
+    const lateFetchClassifier = new OpenRouterIntentClassifier({
+      keyStore: makeKeyStore(),
+      enabled: true,
+      userConsentGranted: true,
+      fetchFn: vi.fn().mockImplementation(async () => {
+        inFlightAbort.abort()
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    intent: 'help_request',
+                    decision: 'ready',
+                    requiresResponse: true,
+                    addressee: 'assistant_or_user',
+                    evidence: ['late_result'],
+                    contextDependent: false,
+                    uncertain: false
+                  })
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        )
+      }) as unknown as typeof fetch
+    })
+
+    const lateAbortedRes = await lateFetchClassifier.classify({
+      utterance: utt,
+      context: snap,
+      localAnalysis: local,
+      signal: inFlightAbort.signal
+    })
+    expect(lateAbortedRes).toBeNull()
+    expect(lateFetchClassifier.getStatus().lastError).toBe('aborted')
+    expect(lateFetchClassifier.getStatus().requestCount).toBe(0)
   })
 })
 
