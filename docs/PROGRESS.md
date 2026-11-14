@@ -7,15 +7,24 @@
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, M2, and M3 Conversation Intent Detection Pipeline complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 41 suites, 568 tests).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 43 suites, 578 tests).
 - [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
 - [ ] Product acceptance criteria verified.
 
 ## Current milestone
 
-**M3 — Transcription and Conversation Intent Detection Pipeline** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3, P3.4 + Full M3 Conversation Intent Pipeline & 160-Example Benchmark completed and verified; GATE-3 manual verification checklist ready).
+**M3 — Transcription and Conversation Intent Detection Pipeline** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3, P3.4 + Full M3 Conversation Intent Pipeline & 160-Example Benchmark completed and verified; GATE-3 manual verification checklist ready; SOLID Refactoring & Autonomous Workflow complete).
 
 ## Verified deliverables
+
+- SOLID Refactoring, Clean Architecture & Autonomous GitHub Workflow (COMPLETED & VERIFIED):
+  * Merged PR #31 (`chore/solid-refactor-clean-architecture-20261114` -> `main`, merge commit `2f0199e`), updating `AGENTS.md` and `.agents/skills/solid-refactor/SKILL.md` to establish mandatory Single Responsibility Principle and clean architecture rules for all subsequent tasks.
+  * Completed architectural audit of `src/main/transcription/openrouter-intent-classifier.ts` and separated independent responsibilities according to SRP, KISS, DRY, and YAGNI without altering observable runtime behavior, IPC contracts, or security invariants.
+  * Extracted LLM system prompts and untrusted transcript XML formatting into dedicated module `src/main/transcription/intent-classifier-prompts.ts` (`CLASSIFIER_SYSTEM_PROMPT`, `buildClassifierUserPrompt`, `stripMarkdownFences`) with 5 focused unit tests (`test/unit/intent-classifier-prompts.test.ts`).
+  * Extracted model metadata, pricing, and cost computation into dedicated module `src/main/transcription/intent-classifier-models.ts` (`SUPPORTED_CLASSIFIER_MODELS`, `DEFAULT_CLASSIFIER_MODEL`, `calculateModelCostUsd`, `isSupportedClassifierModel`, `getModelSpec`) with 5 focused unit tests (`test/unit/intent-classifier-models.test.ts`).
+  * Refactored `OpenRouterIntentClassifier` to delegate prompt formatting and model registry lookups to dedicated modules while re-exporting types and registries for 100% backward compatibility, preserving all timeouts, cancellation, secret redaction, circuit breakers, and budget caps.
+  * Updated repository governance instructions in `AGENTS.md`, `docs/DEVELOPMENT_WORKFLOW.md`, and `.agents/rules/git-discipline.md` to authorize autonomous PR merging via Merge Commit for regular verified roadmap and refactoring tasks upon green quality checks and internal self-review / security review.
+  * Total suite: 43 test suites, 578 tests (542 unit + 36 UI) passing green; 0 typecheck errors, 0 lint warnings, successful build, and verified 1-file-1-commit history.
 
 - M3 Conversation Intent Detection Pipeline & Evaluation Benchmark (COMPLETED & VERIFIED):
   * Upgraded M3 from shallow single-segment regex matching to a multi-stage Conversation Intent Detection Pipeline (`UtteranceAssembler` -> `ConversationContext` -> `LocalIntentAnalyzer` -> optional opt-in `OpenRouterIntentClassifier` -> `IntentDecisionEngine` -> `QuestionControls`).
