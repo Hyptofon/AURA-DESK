@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global process, console, setTimeout */
 /**
  * Live OpenRouter Intent Model Benchmark Runner.
  * Executes live evaluation for the 4 free OpenRouter intent models:
@@ -16,7 +17,6 @@ import { BENCHMARK_CASES } from '../src/main/transcription/benchmarks/benchmark-
 import { ChatCompletionsBenchmarkAdapter } from '../src/main/transcription/benchmarks/chat-completions-adapter.ts'
 import { DecisionsApiBenchmarkAdapter } from '../src/main/transcription/benchmarks/decisions-api-adapter.ts'
 import {
-  computeMetrics,
   formatConfusionMatrixMarkdown,
   runModelBenchmark
 } from '../src/main/transcription/benchmarks/benchmark-runner.ts'
