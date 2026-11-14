@@ -929,6 +929,58 @@ export class LocalIntentAnalyzer {
       .replace(/\s+/g, ' ')
       .trim()
 
+    const words = clean.split(' ').filter(Boolean)
+    const w0 = words[0] ?? ''
+    const w1 = words[1] ?? ''
+
+    const interrogatives = new Set([
+      'що',
+      'чому',
+      'як',
+      'де',
+      'коли',
+      'хто',
+      'який',
+      'яка',
+      'яке',
+      'які',
+      'чи',
+      'навіщо',
+      'скільки',
+      'куди',
+      'звідки',
+      'what',
+      'why',
+      'how',
+      'where',
+      'when',
+      'who',
+      'which',
+      'whose',
+      'whom'
+    ])
+    const prefixes = new Set([
+      'а',
+      'і',
+      'та',
+      'ну',
+      'от',
+      'тож',
+      'and',
+      'so',
+      'well',
+      'now',
+      'then',
+      'but'
+    ])
+
+    if (interrogatives.has(w0)) {
+      return w0
+    }
+    if (prefixes.has(w0) && interrogatives.has(w1)) {
+      return `${w0} ${w1}`
+    }
+
     const knownPhrases = [
       'можеш пояснити',
       'можете пояснити',
@@ -984,10 +1036,6 @@ export class LocalIntentAnalyzer {
       }
     }
 
-    const words = clean.split(' ').filter(Boolean)
-    const w0 = words[0] ?? ''
-    const w1 = words[1] ?? ''
-    const prefixes = new Set(['а', 'і', 'та', 'ну', 'от', 'тож', 'and', 'so', 'well', 'now', 'then', 'but'])
     if (prefixes.has(w0) && w1) {
       return `${w0} ${w1}`
     }
