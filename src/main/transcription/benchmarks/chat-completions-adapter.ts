@@ -16,19 +16,21 @@ Decision rubrics:
 
 You MUST respond ONLY with a minimal JSON object adhering to:
 {"decision": "IGNORE" | "SUGGEST" | "READY", "intent": "direct_question" | "indirect_question" | "explanation_request" | "help_request" | "clarification_request" | "contextual_follow_up" | "statement" | "reported_question" | "rhetorical_question" | "other"}
-Do not output markdown code blocks, reasoning text, or extra tokens outside the JSON.`
+Do not output markdown code blocks, explanations, or extra tokens outside the JSON.`
 
 export class ChatCompletionsBenchmarkAdapter implements IntentBenchmarkAdapter {
   public readonly endpointUrl = 'https://openrouter.ai/api/v1/chat/completions'
   public readonly modelId: BenchmarkModelId
   private readonly fetchFn: typeof fetch
+  private readonly timeoutMs: number
 
   constructor(
     modelId: BenchmarkModelId,
-    options: { fetchFn?: typeof fetch } = {}
+    options: { fetchFn?: typeof fetch; timeoutMs?: number } = {}
   ) {
     this.modelId = modelId
     this.fetchFn = options.fetchFn ?? fetch
+    this.timeoutMs = options.timeoutMs ?? 12000
   }
 
   public async classify(
@@ -48,9 +50,13 @@ export class ChatCompletionsBenchmarkAdapter implements IntentBenchmarkAdapter {
         { role: 'system', content: CHAT_SYSTEM_PROMPT },
         { role: 'user', content: userMessageContent }
       ],
-      max_tokens: 300,
+      max_tokens: 500,
       temperature: 0.1
     }
+
+    const effectiveSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)])
+      : AbortSignal.timeout(this.timeoutMs)
 
     try {
       const response = await this.fetchFn(this.endpointUrl, {
@@ -62,7 +68,7 @@ export class ChatCompletionsBenchmarkAdapter implements IntentBenchmarkAdapter {
           'X-Title': 'AURA DESK Benchmark'
         },
         body: JSON.stringify(requestPayload),
-        signal
+        signal: effectiveSignal
       })
 
       const durationMs = Date.now() - startTime
