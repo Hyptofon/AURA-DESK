@@ -3,7 +3,10 @@ import { EventEmitter } from 'node:events'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { WhisperCppSttProvider } from '@/main/transcription/whisper-cpp-provider'
+import {
+  WhisperCppSttProvider,
+  detectTranscriptLanguage
+} from '@/main/transcription/whisper-cpp-provider'
 import { createSyntheticAudioBuffer } from '../../test/fixtures/stt-fixtures'
 
 class MockChildProcess extends EventEmitter {
@@ -232,5 +235,38 @@ describe('WhisperCppSttProvider', () => {
 
     // Verify pythonTxt was cleaned up
     expect(fs.existsSync(pythonTxt)).toBe(false)
+  })
+
+  it('does not default automatic-language results to Ukrainian when English or mixed text is returned', async () => {
+    const provider = new WhisperCppSttProvider({
+      executablePath: mockExePath,
+      modelPath: mockModelPath,
+      processSpawner: mockSpawner,
+      tempDir: testTempDir
+    })
+
+    const audio = createSyntheticAudioBuffer()
+    const promise = provider.transcribe({ audio, language: 'auto' })
+
+    await waitForSpawner(mockSpawner)
+
+    mockChild.stdout.emit(
+      'data',
+      Buffer.from('[00:00:00.000 --> 00:00:01.200] How does the event loop handle promises?\n')
+    )
+    mockChild.emit('close', 0)
+
+    const result = await promise
+    expect(result.language).toBe('en')
+    expect(result.segments?.[0].language).toBe('en')
+  })
+
+  it('conservatively attributes uk, en, mixed, and unknown in detectTranscriptLanguage', () => {
+    expect(detectTranscriptLanguage('Поясни, як працює черга повідомлень.')).toBe('uk')
+    expect(detectTranscriptLanguage('How does the message queue work?')).toBe('en')
+    expect(detectTranscriptLanguage('Як працює useEffect cleanup у React компоненті?')).toBe(
+      'mixed'
+    )
+    expect(detectTranscriptLanguage('12345 ... ???')).toBe('unknown')
   })
 })
