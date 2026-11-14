@@ -1,21 +1,35 @@
 # Progress — source of truth for current implementation
 
-**Last verified:** 2026-11-14. **Current status:** `M0 COMPLETED, M1 COMPLETED, M2 COMPLETED & VERIFIED (GATE-2 CLOSED WITH REAL HARDWARE EVIDENCE), M3 IMPLEMENTED & BENCHMARK-VERIFIED (AWAITING GATE-3 LIVE SPOKEN DEMO)`.
+**Last verified:** 2026-11-14. **Current status:** `M0 COMPLETED, M1 COMPLETED, M2 COMPLETED & VERIFIED (GATE-2 CLOSED WITH REAL HARDWARE EVIDENCE), M3 IMPLEMENTED & FREE MODEL BENCHMARK VERIFIED (AWAITING GATE-3 LIVE SPOKEN DEMO)`.
 
 ## Summary
 
 - [x] Documentation/specification assembled for initial agent workflow.
 - [x] Application repository initialized and bootable (P0.1).
 - [x] Runtime code implemented (M0, M1, M2, and M3 Conversation Intent Detection Pipeline complete modular implementation).
-- [x] Test and lint infrastructure configured and verified green (P0.3, 43 suites, 578 tests).
-- [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback).
+- [x] Test and lint infrastructure configured and verified green (P0.3, 44 suites, 586 tests).
+- [x] Any Windows hardware or OpenRouter integration tested (P1.1, P1.2 physical screen capture & hotplug, P2.1-P2.4 audio pipelines, GATE-2 physical audio & loopback, M3 free OpenRouter live benchmark).
 - [ ] Product acceptance criteria verified.
 
 ## Current milestone
 
-**M3 — Transcription and Conversation Intent Detection Pipeline** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3, P3.4 + Full M3 Conversation Intent Pipeline & 160-Example Benchmark completed and verified; GATE-3 manual verification checklist ready; SOLID Refactoring & Autonomous Workflow complete).
+**M3 — Transcription and Conversation Intent Detection Pipeline** (Milestones M0, M1, and M2 completed and verified; GATE-2 verified on physical Windows hardware; Tasks P3.1, P3.2, P3.3, P3.4 + Full M3 Conversation Intent Pipeline, 160-Example Offline Benchmark, and 4-Model Live Free OpenRouter Benchmark completed and verified; GATE-3 manual verification checklist ready; SOLID Refactoring & Autonomous Workflow complete).
 
 ## Verified deliverables
+
+- M3 Live Benchmark of Four Free OpenRouter Intent Models (COMPLETED & VERIFIED):
+  * Executed real live API benchmark across four authorized free OpenRouter model routes (`inclusionai/ling-3.2-flash:free`, `perplexity/pplx-decider-v1.3:free`, `baidu/ernie-5.5-flash-preview:free`, and `perplexity/pplx-decider-flash-v1.3:free`) over a balanced 20-case test dataset covering Ukrainian, English, mixed technical, indirect requests, reported speech, and contextual follow-ups.
+  * Implemented typed benchmark harness: `BenchmarkTypes` (`src/main/transcription/benchmarks/benchmark-types.ts`), `ChatCompletionsBenchmarkAdapter` with timeoutMs safeguard (`src/main/transcription/benchmarks/chat-completions-adapter.ts`), `DecisionsApiBenchmarkAdapter` with typed choice mapping and timeoutMs safeguard (`src/main/transcription/benchmarks/decisions-api-adapter.ts`), 20-case benchmark dataset (`src/main/transcription/benchmarks/benchmark-dataset.ts`), and `BenchmarkRunner` with comprehensive metrics aggregator (`src/main/transcription/benchmarks/benchmark-runner.ts`).
+  * Created CLI execution script `scripts/run-live-intent-benchmark.mjs` with graceful error handling and JSONL / Markdown report generator.
+  * Added 8 unit tests in `test/unit/intent-benchmark-adapters.test.ts` verifying request payload generation, schema validation, choice normalization, and metrics aggregation. Total suite: 44 suites, 586 tests passing green.
+  * Verified $0.00 total billed spend across all 80 benchmark requests (zero account credits consumed).
+  * Empirical benchmark results:
+    - Model C (`baidu/ernie-5.5-flash-preview:free` via `/api/v1/chat/completions`): 100.0% accuracy (20/20 correct), 100.0% Ready Precision / Recall / F1, mean latency 1419ms (P50: 1502ms, P95: 2196ms), 100% Ukrainian accuracy (13/13), 100% English accuracy (6/6). Zero false ready triggers on quotations or reported speech.
+    - Model B (`perplexity/pplx-decider-v1.3:free` via `/api/alpha/decisions`): 95.0% accuracy (19/20 correct), 100.0% Ready Precision, 90.0% Ready Recall, 94.7% F1, mean latency 2026ms (P50: 1950ms, P95: 5573ms). 0 false ready triggers.
+    - Model D (`perplexity/pplx-decider-flash-v1.3:free` via `/api/alpha/decisions`): 85.0% accuracy (17/20 correct), 100.0% Ready Precision, 80.0% Ready Recall, 88.9% F1, mean latency 385ms (P50: 368ms, P95: 587ms) — extreme sub-400ms speed. 0 false ready triggers.
+    - Model A (`inclusionai/ling-3.2-flash:free` via `/api/v1/chat/completions`): 100.0% accuracy on answered requests (8/8 correct), but 60.0% request failure rate (12/20 requests timed out after 12s on upstream Ant Digital infrastructure). Mean latency on answered: 1759ms.
+  * Documented comprehensive empirical results in `docs/benchmarks/M3_INTENT_MODEL_BENCHMARK.md` and raw request logs in `docs/benchmarks/m3-intent-results.jsonl`.
+  * Status confirmed: `MODEL SELECTION STATUS: AWAITING USER REVIEW`. No remote model enabled by default in production.
 
 - Comprehensive Project-Wide SOLID Refactoring & Clean Architecture (COMPLETED & VERIFIED):
   * Merged PR #31 (`chore/solid-refactor-clean-architecture-20261114` -> `main`, merge commit `2f0199e`), updating `AGENTS.md` and `.agents/skills/solid-refactor/SKILL.md` to establish mandatory Single Responsibility Principle and clean architecture rules for all subsequent tasks.
