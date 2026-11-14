@@ -26,7 +26,7 @@ export interface OpenRouterKeyStoreOptions {
 }
 
 const SECRET_TOKEN_REGEX = /\bsk-or-(?:v1-)?[a-zA-Z0-9_-]{8,}\b/g
-const GENERIC_BEARER_REGEX = /\bBearer\s+[a-zA-Z0-9._\-]{10,}\b/gi
+const GENERIC_BEARER_REGEX = /\bBearer\s+[a-zA-Z0-9._-]{10,}\b/gi
 
 /**
  * Redacts OpenRouter API keys and Bearer tokens from any diagnostic or error message.
