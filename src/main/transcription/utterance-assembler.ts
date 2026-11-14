@@ -213,7 +213,7 @@ function looksLikeCompleteQuestionOrRequest(text: string): boolean {
 
 function startsNewIndependentQuestion(text: string): boolean {
   const trimmed = text.trim()
-  if (SUBORDINATE_CONTINUATION_STARTERS.test(trimmed)) {
+  if (SUBORDINATE_CONTINUATION_STARTERS.some((pattern) => pattern.test(trimmed))) {
     return false
   }
   for (const pattern of NEW_QUESTION_STARTERS) {
