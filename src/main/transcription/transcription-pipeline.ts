@@ -1,45 +1,142 @@
 /**
- * Transcription Pipeline.
- * Orchestrates audio chunk ingestion, speech window aggregation, STT provider inference,
- * timestamp-preserved transcript segmentation, and question candidate detection.
+ * Transcription & Conversation Intent Detection Pipeline.
+ * Orchestrates audio chunk ingestion, bounded speech window aggregation,
+ * bounded STT backpressure queue, semantic utterance assembly, multi-turn conversation
+ * context, hybrid local/OpenRouter intent classification, and question candidate controls.
  */
 
 import type { AudioChunk } from '@/shared/contracts/audio'
 import type {
+  AudioPcmBuffer,
+  DetectedLanguage,
   SpeechToTextProvider,
   TranscriptSegment
 } from '@/shared/contracts/transcription'
 import type {
+  AssembledUtterance,
+  IntentEvaluationRecord,
   QuestionCandidate,
+  SemanticClassifierConfig,
   TranscriptionSessionState
 } from '@/shared/contracts/questions'
 import { SpeechWindowAssembler, type SpeechWindowOptions } from './speech-window'
-import { evaluateSegmentForQuestion } from './question-detector'
+import {
+  UtteranceAssembler,
+  normalizeUtteranceText,
+  type UtteranceAssemblerOptions
+} from './utterance-assembler'
+import { ConversationContext, type ConversationContextOptions } from './conversation-context'
+import { LocalIntentAnalyzer } from './local-intent-analyzer'
+import type { IntentClassifier } from './intent-classifier'
+import { IntentDecisionEngine } from './intent-decision-engine'
 import { QuestionControls, type QuestionControlsOptions } from './question-controls'
+import { detectTranscriptLanguage } from './whisper-cpp-provider'
 
 export interface TranscriptionPipelineOptions {
   provider: SpeechToTextProvider
   windowOptions?: SpeechWindowOptions
+  utteranceOptions?: UtteranceAssemblerOptions
+  contextOptions?: ConversationContextOptions
   controlsOptions?: QuestionControlsOptions
+  classifier?: IntentClassifier | null
   maxSegments?: number
+  maxUtterances?: number
+  maxEvaluations?: number
   maxQuestions?: number
+  /** Maximum pending audio windows buffered while STT is busy. Default: 6 */
+  maxPendingWindows?: number
+  /** Silence settle timeout (ms) for forced-split or incomplete utterances. Default: 1200ms */
+  utteranceSettleMs?: number
+}
+
+const INCOMPLETE_TAIL_WORDS = new Set([
+  'і',
+  'й',
+  'та',
+  'а',
+  'але',
+  'бо',
+  'тому',
+  'що',
+  'щоб',
+  'якщо',
+  'коли',
+  'де',
+  'куди',
+  'звідки',
+  'для',
+  'від',
+  'до',
+  'на',
+  'у',
+  'в',
+  'з',
+  'про',
+  'при',
+  'чи',
+  'або',
+  'and',
+  'or',
+  'but',
+  'because',
+  'since',
+  'while',
+  'when',
+  'if',
+  'which',
+  'that',
+  'to',
+  'for',
+  'with',
+  'from',
+  'into',
+  'of',
+  'in',
+  'on',
+  'at',
+  'by',
+  'about'
+])
+
+function hasIncompleteTrailingClause(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed || /[.!?…]$/.test(trimmed)) return false
+  if (/[,:—–-]$/.test(trimmed)) return true
+  const words = normalizeUtteranceText(trimmed).split(' ').filter(Boolean)
+  if (words.length === 0) return false
+  return INCOMPLETE_TAIL_WORDS.has(words[words.length - 1])
 }
 
 export class TranscriptionPipeline {
   private readonly provider: SpeechToTextProvider
   private readonly micAssembler: SpeechWindowAssembler
   private readonly systemAssembler: SpeechWindowAssembler
+  private readonly utteranceAssembler: UtteranceAssembler
+  private readonly decisionEngine: IntentDecisionEngine
   private readonly questionControls: QuestionControls
   private readonly maxSegments: number
+  private readonly maxUtterances: number
+  private readonly maxEvaluations: number
   private readonly maxQuestions: number
+  private readonly maxPendingWindows: number
+  private readonly utteranceSettleMs: number
 
   private segments: TranscriptSegment[] = []
+  private utterances: AssembledUtterance[] = []
+  private evaluations: IntentEvaluationRecord[] = []
   private questions: QuestionCandidate[] = []
+
   private isTranscribing = false
+  private isClassifying = false
   private isPaused = false
   private sessionGeneration = 0
   private currentAbortController: AbortController | null = null
-  private pendingAudioWindow: NonNullable<ReturnType<SpeechWindowAssembler['ingest']>> | null = null
+  private currentClassifierAbortController: AbortController | null = null
+  private utteranceSettleTimer: NodeJS.Timeout | null = null
+
+  private pendingAudioWindows: AudioPcmBuffer[] = []
+  private droppedWindowCount = 0
+  private lastDropReason: string | null = null
 
   private stateSubscribers = new Set<(state: TranscriptionSessionState) => void>()
   private questionSubscribers = new Set<(question: QuestionCandidate) => void>()
@@ -47,10 +144,20 @@ export class TranscriptionPipeline {
   constructor(options: TranscriptionPipelineOptions) {
     this.provider = options.provider
     this.maxSegments = options.maxSegments ?? 50
+    this.maxUtterances = options.maxUtterances ?? 40
+    this.maxEvaluations = options.maxEvaluations ?? 40
     this.maxQuestions = options.maxQuestions ?? 20
+    this.maxPendingWindows = Math.max(1, options.maxPendingWindows ?? 6)
+    this.utteranceSettleMs = Math.max(50, options.utteranceSettleMs ?? 1200)
 
     this.micAssembler = new SpeechWindowAssembler('mic', options.windowOptions)
     this.systemAssembler = new SpeechWindowAssembler('system', options.windowOptions)
+    this.utteranceAssembler = new UtteranceAssembler(options.utteranceOptions)
+    this.decisionEngine = new IntentDecisionEngine({
+      context: new ConversationContext(options.contextOptions),
+      localAnalyzer: new LocalIntentAnalyzer(),
+      classifier: options.classifier ?? null
+    })
     this.questionControls = new QuestionControls(options.controlsOptions)
   }
 
@@ -70,11 +177,32 @@ export class TranscriptionPipeline {
   public getState(): TranscriptionSessionState {
     return {
       latestSegment: this.segments[this.segments.length - 1] ?? null,
+      latestUtterance: this.utterances[this.utterances.length - 1] ?? null,
+      latestEvaluation: this.evaluations[this.evaluations.length - 1] ?? null,
       latestQuestion: this.questions[this.questions.length - 1] ?? null,
       segmentCount: this.segments.length,
       questionCount: this.questions.length,
-      isTranscribing: this.isTranscribing
+      isTranscribing: this.isTranscribing,
+      isClassifying: this.isClassifying,
+      semanticClassifier: this.decisionEngine.getClassifierStatus(),
+      diagnostics: {
+        queuedWindowCount: this.pendingAudioWindows.length,
+        droppedWindowCount: this.droppedWindowCount,
+        lastDropReason: this.lastDropReason,
+        pendingCandidateCount: this.questionControls.getPendingCount(),
+        droppedCandidateCount: this.questionControls.getDroppedCount(),
+        lastCandidateDropReason: this.questionControls.getLastDropReason(),
+        utteranceCount: this.utterances.length
+      }
     }
+  }
+
+  public setClassifierConfig(
+    config: Partial<SemanticClassifierConfig>
+  ): TranscriptionSessionState {
+    this.decisionEngine.setClassifierConfig(config)
+    this.notifyStateChanged()
+    return this.getState()
   }
 
   public onStateChanged(callback: (state: TranscriptionSessionState) => void): () => void {
@@ -92,23 +220,34 @@ export class TranscriptionPipeline {
   }
 
   /**
-   * Pauses transcription pipeline. Drops incoming chunks, cancels debounce timers,
-   * and aborts any active in-flight STT inference immediately.
+   * Pauses transcription pipeline. Drops incoming chunks, cancels debounce/settle timers,
+   * and aborts any active in-flight STT or semantic classifier inference immediately.
    */
   public pause(): void {
     this.isPaused = true
     this.sessionGeneration++
-    this.pendingAudioWindow = null
+    if (this.pendingAudioWindows.length > 0) {
+      this.droppedWindowCount += this.pendingAudioWindows.length
+      this.lastDropReason = 'paused_or_stopped'
+      this.pendingAudioWindows = []
+    }
+    this.clearUtteranceSettleTimer()
     this.micAssembler.reset()
     this.systemAssembler.reset()
+    this.utteranceAssembler.reset()
     this.questionControls.cancel()
 
     if (this.currentAbortController) {
       this.currentAbortController.abort()
       this.currentAbortController = null
     }
+    if (this.currentClassifierAbortController) {
+      this.currentClassifierAbortController.abort()
+      this.currentClassifierAbortController = null
+    }
 
     this.isTranscribing = false
+    this.isClassifying = false
     this.notifyStateChanged()
   }
 
@@ -124,20 +263,32 @@ export class TranscriptionPipeline {
   public stop(): void {
     this.isPaused = false
     this.sessionGeneration++
-    this.pendingAudioWindow = null
+    this.pendingAudioWindows = []
+    this.droppedWindowCount = 0
+    this.lastDropReason = null
+    this.clearUtteranceSettleTimer()
     this.micAssembler.reset()
     this.systemAssembler.reset()
+    this.utteranceAssembler.reset()
+    this.decisionEngine.reset()
     this.questionControls.cancel()
     this.questionControls.reset()
     this.segments = []
+    this.utterances = []
+    this.evaluations = []
     this.questions = []
 
     if (this.currentAbortController) {
       this.currentAbortController.abort()
       this.currentAbortController = null
     }
+    if (this.currentClassifierAbortController) {
+      this.currentClassifierAbortController.abort()
+      this.currentClassifierAbortController = null
+    }
 
     this.isTranscribing = false
+    this.isClassifying = false
     this.notifyStateChanged()
   }
 
@@ -150,14 +301,22 @@ export class TranscriptionPipeline {
     }
   }
 
-  private async processAudioWindow(window: NonNullable<ReturnType<SpeechWindowAssembler['ingest']>>): Promise<void> {
+  private async processAudioWindow(window: AudioPcmBuffer): Promise<void> {
     if (this.isPaused) {
+      this.droppedWindowCount += 1
+      this.lastDropReason = 'paused_or_stopped'
       return
     }
 
     if (this.isTranscribing) {
-      // Bounded queue: buffer at most 1 pending speech window while STT inference is busy
-      this.pendingAudioWindow = window
+      if (this.pendingAudioWindows.length >= this.maxPendingWindows) {
+        // Explicit bounded backpressure: evict oldest stale window and record overflow reason
+        this.pendingAudioWindows.shift()
+        this.droppedWindowCount += 1
+        this.lastDropReason = 'stt_queue_overflow'
+      }
+      this.pendingAudioWindows.push(window)
+      this.notifyStateChanged()
       return
     }
 
@@ -173,7 +332,6 @@ export class TranscriptionPipeline {
         signal: abortController.signal
       })
 
-      // Stale generation check: discard if session stopped or paused during inference
       if (
         this.sessionGeneration !== currentGen ||
         abortController.signal.aborted ||
@@ -184,37 +342,69 @@ export class TranscriptionPipeline {
 
       const trimmedText = result.text?.trim()
       if (trimmedText && trimmedText.length > 0) {
-        const rawSegments = result.segments && result.segments.length > 0
-          ? result.segments
-          : [
-              {
-                id: `seg-${Date.now()}`,
-                source: window.source,
-                startTimestamp: window.startTimestamp,
-                endTimestamp: window.endTimestamp,
-                text: trimmedText,
-                language: result.language,
-                confidence: result.confidence,
-                isFinal: true
-              }
-            ]
+        const resolvedLanguage: DetectedLanguage =
+          result.language && result.language !== 'unknown'
+            ? result.language
+            : detectTranscriptLanguage(trimmedText)
+
+        const rawSegments =
+          result.segments && result.segments.length > 0
+            ? result.segments.map((seg, idx, arr) => ({
+                ...seg,
+                language:
+                  seg.language && seg.language !== 'unknown'
+                    ? seg.language
+                    : detectTranscriptLanguage(seg.text),
+                isForcedSplit:
+                  idx === arr.length - 1
+                    ? Boolean(seg.isForcedSplit ?? window.isForcedSplit)
+                    : Boolean(seg.isForcedSplit)
+              }))
+            : [
+                {
+                  id: `seg-${window.startTimestamp}-${Math.random().toString(36).slice(2, 6)}`,
+                  source: window.source,
+                  startTimestamp: window.startTimestamp,
+                  endTimestamp: window.endTimestamp,
+                  text: trimmedText,
+                  language: resolvedLanguage,
+                  confidence: result.confidence,
+                  isFinal: true,
+                  isForcedSplit: Boolean(window.isForcedSplit)
+                }
+              ]
 
         const validSegments = rawSegments.filter((s) => s.text && s.text.trim().length > 0)
 
-        for (const segment of validSegments) {
+        for (let i = 0; i < validSegments.length; i++) {
+          const segment = validSegments[i]
           this.addSegment(segment)
 
-          const questionCandidate = evaluateSegmentForQuestion(segment)
-          if (questionCandidate) {
-            this.questionControls.submitCandidate(
-              questionCandidate,
-              (readyCandidate) => {
-                if (this.sessionGeneration === currentGen && !this.isPaused) {
-                  this.addQuestion(readyCandidate)
-                  this.notifyStateChanged()
-                }
-              }
+          const emittedUtterances = this.utteranceAssembler.ingestSegment(segment)
+          const isLastSegmentInWindow = i === validSegments.length - 1
+          const hasMoreQueuedForSameSource = this.pendingAudioWindows.some(
+            (w) => w.source === segment.source
+          )
+
+          const shouldHoldForContinuation =
+            Boolean(segment.isForcedSplit) ||
+            hasIncompleteTrailingClause(segment.text) ||
+            (isLastSegmentInWindow && hasMoreQueuedForSameSource)
+
+          if (!shouldHoldForContinuation && this.utteranceAssembler.hasPending(segment.source)) {
+            const flushed = this.utteranceAssembler.flushSource(
+              segment.source,
+              'silence_boundary'
             )
+            if (flushed) {
+              emittedUtterances.push(flushed)
+            }
+          } else if (this.utteranceAssembler.hasPending(segment.source)) {
+            this.scheduleUtteranceSettleFlush(currentGen)
+          }
+
+          for (const utterance of emittedUtterances) {
+            await this.evaluateAndDispatchUtterance(utterance, currentGen)
           }
         }
       }
@@ -222,7 +412,8 @@ export class TranscriptionPipeline {
       if (
         abortController.signal.aborted ||
         this.sessionGeneration !== currentGen ||
-        (err instanceof Error && (err.name === 'AbortError' || err.message.toLowerCase().includes('abort')))
+        (err instanceof Error &&
+          (err.name === 'AbortError' || err.message.toLowerCase().includes('abort')))
       ) {
         return
       }
@@ -233,11 +424,90 @@ export class TranscriptionPipeline {
         this.currentAbortController = null
         this.notifyStateChanged()
 
-        if (this.pendingAudioWindow && !this.isPaused) {
-          const nextWindow = this.pendingAudioWindow
-          this.pendingAudioWindow = null
+        if (this.pendingAudioWindows.length > 0 && !this.isPaused) {
+          const nextWindow = this.pendingAudioWindows.shift()!
           void this.processAudioWindow(nextWindow)
         }
+      }
+    }
+  }
+
+  private scheduleUtteranceSettleFlush(expectedGen: number): void {
+    this.clearUtteranceSettleTimer()
+    this.utteranceSettleTimer = setTimeout(() => {
+      this.utteranceSettleTimer = null
+      if (this.sessionGeneration !== expectedGen || this.isPaused) {
+        return
+      }
+      const flushed = this.utteranceAssembler.flushAll('silence_boundary')
+      for (const utterance of flushed) {
+        void this.evaluateAndDispatchUtterance(utterance, expectedGen)
+      }
+    }, this.utteranceSettleMs)
+  }
+
+  private clearUtteranceSettleTimer(): void {
+    if (this.utteranceSettleTimer) {
+      clearTimeout(this.utteranceSettleTimer)
+      this.utteranceSettleTimer = null
+    }
+  }
+
+  private async evaluateAndDispatchUtterance(
+    utterance: AssembledUtterance,
+    expectedGen: number
+  ): Promise<void> {
+    if (this.sessionGeneration !== expectedGen || this.isPaused) {
+      return
+    }
+
+    this.addUtterance(utterance)
+
+    const classifierAbort = new AbortController()
+    this.currentClassifierAbortController = classifierAbort
+    this.isClassifying = true
+    this.notifyStateChanged()
+
+    try {
+      const outcome = await this.decisionEngine.evaluateUtterance(
+        utterance,
+        classifierAbort.signal
+      )
+
+      if (
+        !outcome ||
+        this.sessionGeneration !== expectedGen ||
+        classifierAbort.signal.aborted ||
+        this.isPaused
+      ) {
+        return
+      }
+
+      this.addEvaluation(outcome.evaluation)
+
+      if (outcome.candidate) {
+        this.questionControls.submitCandidate(
+          outcome.candidate,
+          (readyOrSuggestCandidate) => {
+            if (this.sessionGeneration === expectedGen && !this.isPaused) {
+              this.addQuestion(readyOrSuggestCandidate)
+              this.notifyStateChanged()
+            }
+          },
+          () => {
+            if (this.sessionGeneration === expectedGen && !this.isPaused) {
+              this.notifyStateChanged()
+            }
+          }
+        )
+      }
+    } finally {
+      if (this.sessionGeneration === expectedGen) {
+        this.isClassifying = false
+        if (this.currentClassifierAbortController === classifierAbort) {
+          this.currentClassifierAbortController = null
+        }
+        this.notifyStateChanged()
       }
     }
   }
@@ -246,6 +516,20 @@ export class TranscriptionPipeline {
     this.segments.push(segment)
     if (this.segments.length > this.maxSegments) {
       this.segments.shift()
+    }
+  }
+
+  private addUtterance(utterance: AssembledUtterance): void {
+    this.utterances.push(utterance)
+    if (this.utterances.length > this.maxUtterances) {
+      this.utterances.shift()
+    }
+  }
+
+  private addEvaluation(evaluation: IntentEvaluationRecord): void {
+    this.evaluations.push(evaluation)
+    if (this.evaluations.length > this.maxEvaluations) {
+      this.evaluations.shift()
     }
   }
 
