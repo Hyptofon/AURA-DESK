@@ -1,8 +1,9 @@
-import { app, BrowserWindow, session } from 'electron'
+import { app, BrowserWindow, safeStorage, session } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc/register-handlers'
 import { isAllowedNavigation } from './security/navigation-guard'
+import { OpenRouterKeyStore } from './security/openrouter-key-store'
 import { DisplayManager, forwardDisplayEvents } from './displays/display-manager'
 import { SingleDisplayCapturer } from './capture/single-display-capturer'
 import { createDualDisplayCapturer } from './capture/dual-capture-factory'
@@ -15,6 +16,7 @@ import { SystemLoopbackCapturer } from './capture/system-loopback-capturer'
 import { ElectronLoopbackBackend } from './capture/electron-loopback-backend'
 import { TranscriptionPipeline } from './transcription/transcription-pipeline'
 import { WhisperCppSttProvider } from './transcription/whisper-cpp-provider'
+import { OpenRouterIntentClassifier } from './transcription/openrouter-intent-classifier'
 
 let mainWindow: BrowserWindow | null = null
 let displayManager: DisplayManager | null = null
@@ -22,6 +24,7 @@ let singleDisplayCapturer: SingleDisplayCapturer | null = null
 let dualDisplayCapturer: DualDisplayCapturer | null = null
 let audioSupervisor: IntegratedAudioSupervisor | null = null
 let transcriptionPipeline: TranscriptionPipeline | null = null
+let openRouterKeyStore: OpenRouterKeyStore | null = null
 
 function createWindow(): void {
   const isDev = Boolean(!app.isPackaged && process.env['ELECTRON_RENDERER_URL'])
@@ -84,7 +87,17 @@ function createWindow(): void {
   audioSupervisor = new IntegratedAudioSupervisor(micCapturer, loopbackCapturer)
 
   const sttProvider = new WhisperCppSttProvider()
-  transcriptionPipeline = new TranscriptionPipeline({ provider: sttProvider })
+  openRouterKeyStore = new OpenRouterKeyStore({ safeStorage })
+  const intentClassifier = new OpenRouterIntentClassifier({
+    keyStore: openRouterKeyStore,
+    enabled: false,
+    userConsentGranted: false,
+    model: 'google/gemini-3.1-flash-lite'
+  })
+  transcriptionPipeline = new TranscriptionPipeline({
+    provider: sttProvider,
+    classifier: intentClassifier
+  })
 
   // Register typed IPC handlers bound to authorized window and top frame
   registerIpcHandlers(
@@ -208,6 +221,10 @@ function createWindow(): void {
     if (transcriptionPipeline) {
       transcriptionPipeline.dispose()
       transcriptionPipeline = null
+    }
+    if (openRouterKeyStore) {
+      openRouterKeyStore.clear()
+      openRouterKeyStore = null
     }
     if (singleDisplayCapturer) {
       void singleDisplayCapturer.stop()
