@@ -10,13 +10,15 @@ export class DecisionsApiBenchmarkAdapter implements IntentBenchmarkAdapter {
   public readonly endpointUrl = 'https://openrouter.ai/api/alpha/decisions'
   public readonly modelId: BenchmarkModelId
   private readonly fetchFn: typeof fetch
+  private readonly timeoutMs: number
 
   constructor(
     modelId: BenchmarkModelId,
-    options: { fetchFn?: typeof fetch } = {}
+    options: { fetchFn?: typeof fetch; timeoutMs?: number } = {}
   ) {
     this.modelId = modelId
     this.fetchFn = options.fetchFn ?? fetch
+    this.timeoutMs = options.timeoutMs ?? 12000
   }
 
   public async classify(
@@ -49,6 +51,10 @@ export class DecisionsApiBenchmarkAdapter implements IntentBenchmarkAdapter {
       }
     }
 
+    const effectiveSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)])
+      : AbortSignal.timeout(this.timeoutMs)
+
     try {
       const response = await this.fetchFn(this.endpointUrl, {
         method: 'POST',
@@ -59,7 +65,7 @@ export class DecisionsApiBenchmarkAdapter implements IntentBenchmarkAdapter {
           'X-Title': 'AURA DESK Benchmark'
         },
         body: JSON.stringify(requestPayload),
-        signal
+        signal: effectiveSignal
       })
 
       const durationMs = Date.now() - startTime
