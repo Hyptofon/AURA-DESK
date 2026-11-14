@@ -1,4 +1,4 @@
-import { app, ipcMain } from 'electron'
+import { app, ipcMain, screen } from 'electron'
 import {
   IPC_CHANNELS,
   isAllowedIpcChannel,
@@ -201,7 +201,7 @@ export function getCurrentCaptureSelection(): CaptureSelection {
 
 export function getDisplayManager(): DisplayManager {
   if (!activeDisplayManager) {
-    activeDisplayManager = new DisplayManager()
+    activeDisplayManager = new DisplayManager(screen, getCurrentCaptureSelection)
   }
   return activeDisplayManager
 }
