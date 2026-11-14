@@ -24,12 +24,14 @@ Do not output markdown code blocks or explanatory prose outside the JSON.`
 
 export class ChatCompletionsBenchmarkAdapter implements IntentBenchmarkAdapter {
   public readonly endpointUrl = 'https://openrouter.ai/api/v1/chat/completions'
+  public readonly modelId: BenchmarkModelId
   private readonly fetchFn: typeof fetch
 
   constructor(
-    public readonly modelId: BenchmarkModelId,
+    modelId: BenchmarkModelId,
     options: { fetchFn?: typeof fetch } = {}
   ) {
+    this.modelId = modelId
     this.fetchFn = options.fetchFn ?? fetch
   }
 
