@@ -58,19 +58,17 @@ export function parseOpenRouterKeyFromDotEnv(content: string): string | null {
     const match = line.match(/^(?:export\s+)?OPENROUTER_API_KEY\s*=\s*(.+)$/)
     if (match?.[1]) {
       let value = match[1].trim()
-      // Strip inline comment if unquoted
-      if (!value.startsWith('"') && !value.startsWith("'")) {
+      const doubleQuoted = value.match(/^"([^"]*)"(?:\s*#.*)?$/)
+      const singleQuoted = value.match(/^'([^']*)'(?:\s*#.*)?$/)
+      if (doubleQuoted) {
+        value = doubleQuoted[1].trim()
+      } else if (singleQuoted) {
+        value = singleQuoted[1].trim()
+      } else {
         const hashIdx = value.indexOf(' #')
         if (hashIdx !== -1) {
           value = value.slice(0, hashIdx).trim()
         }
-      }
-      // Strip matching surrounding quotes
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1).trim()
       }
       if (value.length > 0) {
         return value
