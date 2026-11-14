@@ -89,6 +89,25 @@ describe('<App /> Component', () => {
         questionCount: 0,
         isTranscribing: false
       })),
+      setClassifierConfig: vi.fn(async (cfg) => ({
+        latestSegment: null,
+        latestQuestion: null,
+        segmentCount: 0,
+        questionCount: 0,
+        isTranscribing: false,
+        semanticClassifier: {
+          enabled: cfg.enabled,
+          userConsentGranted: cfg.userConsentGranted,
+          providerAvailable: true,
+          configuredModel: cfg.model ?? 'google/gemini-3.1-flash-lite',
+          zdrPreferred: true,
+          requestCount: 0,
+          maxRequests: 100,
+          totalSpentUsd: 0,
+          budgetUsd: 0.25,
+          lastError: null
+        }
+      })),
       onTranscriptionStateChanged: vi.fn((cb) => {
         transcriptionListener = cb
         return () => {
@@ -662,5 +681,114 @@ describe('<App /> Component', () => {
     expect(window.api.stopSession).toHaveBeenCalled()
     expect(screen.getByTestId('transcript-empty')).toHaveTextContent('Очікування мовлення...')
     expect(screen.getByTestId('question-empty')).toHaveTextContent('Питань не виявлено')
+  })
+
+  it('displays assembled utterance, intent category, decision, route, contextUsed, and toggles opt-in semantic classifier', async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    // Semantic classifier toggle is unchecked by default
+    const classifierToggle = screen.getByTestId('toggle-semantic-classifier')
+    expect(classifierToggle).not.toBeChecked()
+    expect(screen.getByTestId('classifier-provider-status')).toHaveTextContent('LOCAL ONLY')
+
+    // Enable opt-in semantic classifier
+    await act(async () => {
+      fireEvent.click(classifierToggle)
+    })
+
+    expect(window.api.setClassifierConfig).toHaveBeenCalledWith({
+      enabled: true,
+      userConsentGranted: true
+    })
+    expect(classifierToggle).toBeChecked()
+    expect(screen.getByTestId('classifier-provider-status')).toHaveTextContent('KEY READY')
+
+    // Emit assembled utterance and semantic intent evaluation
+    await act(async () => {
+      transcriptionListener?.({
+        latestSegment: {
+          id: 'seg-201',
+          source: 'system',
+          startTimestamp: 1700000010000,
+          endTimestamp: 1700000012000,
+          text: 'А другий варіант?',
+          language: 'uk',
+          isFinal: true
+        },
+        latestUtterance: {
+          id: 'utt-201',
+          source: 'system',
+          startTimestamp: 1700000010000,
+          endTimestamp: 1700000012000,
+          text: 'А другий варіант?',
+          normalizedText: 'а другий варіант',
+          language: 'uk',
+          segmentIds: ['seg-201'],
+          fragmentCount: 1,
+          isComplete: true,
+          flushReason: 'sentence_boundary'
+        },
+        latestEvaluation: {
+          utteranceId: 'utt-201',
+          source: 'system',
+          startTimestamp: 1700000010000,
+          endTimestamp: 1700000012000,
+          text: 'А другий варіант?',
+          language: 'uk',
+          intent: 'contextual_follow_up',
+          decision: 'ready',
+          route: 'openrouter',
+          evidenceStrength: 'strong',
+          requiresResponse: true,
+          addressee: 'assistant_or_user',
+          contextUsed: true,
+          evidence: ['contextual_follow_up'],
+          uncertain: false,
+          latencyMs: 145
+        },
+        latestQuestion: {
+          id: 'q-201',
+          segmentId: 'utt-201',
+          source: 'system',
+          timestamp: 1700000012000,
+          text: 'А другий варіант?',
+          language: 'uk',
+          confidence: 0.92,
+          intent: 'contextual_follow_up',
+          decision: 'ready',
+          route: 'openrouter',
+          contextUsed: true,
+          status: 'ready'
+        },
+        segmentCount: 1,
+        questionCount: 1,
+        isTranscribing: false,
+        isClassifying: true,
+        semanticClassifier: {
+          enabled: true,
+          userConsentGranted: true,
+          providerAvailable: true,
+          configuredModel: 'google/gemini-3.1-flash-lite',
+          zdrPreferred: true,
+          requestCount: 1,
+          maxRequests: 100,
+          totalSpentUsd: 0.00008,
+          budgetUsd: 0.25,
+          lastError: 'timeout'
+        }
+      })
+    })
+
+    expect(screen.getByTestId('classifier-active-indicator')).toHaveTextContent('АНАЛІЗ НАМІРУ...')
+    expect(screen.getByTestId('transcript-source')).toHaveTextContent('SYSTEM')
+    expect(screen.getByTestId('transcript-language')).toHaveTextContent('UK')
+    expect(screen.getByTestId('intent-category')).toHaveTextContent('contextual_follow_up')
+    expect(screen.getByTestId('intent-decision')).toHaveTextContent('READY')
+    expect(screen.getByTestId('intent-route')).toHaveTextContent('semantic_classifier')
+    expect(screen.getByTestId('intent-context-used')).toHaveTextContent('CONTEXT: YES')
+    expect(screen.getByTestId('question-decision-badge')).toHaveTextContent('READY')
+    expect(screen.getByTestId('classifier-last-error')).toHaveTextContent('timeout')
   })
 })
