@@ -1050,7 +1050,7 @@ const RAW_EXAMPLES: Array<Omit<BenchmarkExample, 'id' | 'partition'>> = [
         decision: 'ready'
       }
     ],
-    segments: [{ text: 'А цей варіант?' }],
+    segments: [{ text: 'А цей варіант' }],
     expectedIntent: 'contextual_follow_up',
     expectedDecision: 'ready',
     isPositiveActionable: true,
@@ -1069,7 +1069,7 @@ const RAW_EXAMPLES: Array<Omit<BenchmarkExample, 'id' | 'partition'>> = [
         decision: 'ready'
       }
     ],
-    segments: [{ text: 'А якщо навпаки?' }],
+    segments: [{ text: 'А якщо навпаки' }],
     expectedIntent: 'contextual_follow_up',
     expectedDecision: 'ready',
     isPositiveActionable: true,
@@ -1114,7 +1114,7 @@ const RAW_EXAMPLES: Array<Omit<BenchmarkExample, 'id' | 'partition'>> = [
         decision: 'ready'
       }
     ],
-    segments: [{ text: 'А в моєму випадку?' }],
+    segments: [{ text: 'А в моєму випадку' }],
     expectedIntent: 'contextual_follow_up',
     expectedDecision: 'ready',
     isPositiveActionable: true,
@@ -1152,7 +1152,7 @@ const RAW_EXAMPLES: Array<Omit<BenchmarkExample, 'id' | 'partition'>> = [
         decision: 'ready'
       }
     ],
-    segments: [{ text: 'And the previous one?' }],
+    segments: [{ text: 'And the previous one' }],
     expectedIntent: 'contextual_follow_up',
     expectedDecision: 'ready',
     isPositiveActionable: true,
@@ -1178,7 +1178,7 @@ const RAW_EXAMPLES: Array<Omit<BenchmarkExample, 'id' | 'partition'>> = [
         decision: 'ready'
       }
     ],
-    segments: [{ text: 'Would that work here?' }],
+    segments: [{ text: 'Would that work here' }],
     expectedIntent: 'contextual_follow_up',
     expectedDecision: 'ready',
     isPositiveActionable: true,
