@@ -17,12 +17,17 @@
 
 ## Verified deliverables
 
-- SOLID Refactoring, Clean Architecture & Autonomous GitHub Workflow (COMPLETED & VERIFIED):
+- Comprehensive Project-Wide SOLID Refactoring & Clean Architecture (COMPLETED & VERIFIED):
   * Merged PR #31 (`chore/solid-refactor-clean-architecture-20261114` -> `main`, merge commit `2f0199e`), updating `AGENTS.md` and `.agents/skills/solid-refactor/SKILL.md` to establish mandatory Single Responsibility Principle and clean architecture rules for all subsequent tasks.
-  * Completed architectural audit of `src/main/transcription/openrouter-intent-classifier.ts` and separated independent responsibilities according to SRP, KISS, DRY, and YAGNI without altering observable runtime behavior, IPC contracts, or security invariants.
-  * Extracted LLM system prompts and untrusted transcript XML formatting into dedicated module `src/main/transcription/intent-classifier-prompts.ts` (`CLASSIFIER_SYSTEM_PROMPT`, `buildClassifierUserPrompt`, `stripMarkdownFences`) with 5 focused unit tests (`test/unit/intent-classifier-prompts.test.ts`).
-  * Extracted model metadata, pricing, and cost computation into dedicated module `src/main/transcription/intent-classifier-models.ts` (`SUPPORTED_CLASSIFIER_MODELS`, `DEFAULT_CLASSIFIER_MODEL`, `calculateModelCostUsd`, `isSupportedClassifierModel`, `getModelSpec`) with 5 focused unit tests (`test/unit/intent-classifier-models.test.ts`).
-  * Refactored `OpenRouterIntentClassifier` to delegate prompt formatting and model registry lookups to dedicated modules while re-exporting types and registries for 100% backward compatibility, preserving all timeouts, cancellation, secret redaction, circuit breakers, and budget caps.
+  * Completed full-project architectural audit across displays, transcription, IPC security, and renderer layers according to SOLID, KISS, DRY, and YAGNI without altering observable runtime behavior, IPC contracts, or security invariants.
+  * Decoupled `DisplayManager` from `src/main/ipc/register-handlers.ts` to eliminate circular dependency by injecting `getCurrentCaptureSelection` via factory/constructor parameter.
+  * Extracted pure transcript language detection from `src/main/transcription/whisper-cpp-provider.ts` into dedicated module `src/main/transcription/language-detector.ts`, delegating detection and re-exporting types for backward compatibility.
+  * Extracted extensive linguistic regexes and pattern dictionaries from `src/main/transcription/local-intent-analyzer.ts` into dedicated module `src/main/transcription/local-intent-patterns.ts`.
+  * Extracted privileged IPC sender and frame authorization logic from `src/main/ipc/register-handlers.ts` into dedicated module `src/main/ipc/sender-validator.ts`.
+  * Decomposed monolithic 942-line `src/renderer/src/App.tsx` into cohesive presentational Quiet Instrument components (`AppHeader.tsx`, `PrivacyBadges.tsx`, `AudioToggles.tsx`, `ActionControls.tsx`, `TranscriptionDiagnostics.tsx`), reducing `App.tsx` to an orchestration container while preserving 100% of DOM data-testids, state flows, and user interactions.
+  * Extracted LLM system prompts and untrusted transcript XML formatting into dedicated module `src/main/transcription/intent-classifier-prompts.ts` (`CLASSIFIER_SYSTEM_PROMPT`, `buildClassifierUserPrompt`, `stripMarkdownFences`) with 5 focused unit tests.
+  * Extracted model metadata, pricing, and cost computation into dedicated module `src/main/transcription/intent-classifier-models.ts` (`SUPPORTED_CLASSIFIER_MODELS`, `DEFAULT_CLASSIFIER_MODEL`, `calculateModelCostUsd`, `isSupportedClassifierModel`, `getModelSpec`) with 5 focused unit tests.
+  * Refactored `OpenRouterIntentClassifier` to delegate prompt formatting and model registry lookups to dedicated modules while re-exporting types and registries for 100% backward compatibility.
   * Updated repository governance instructions in `AGENTS.md`, `docs/DEVELOPMENT_WORKFLOW.md`, and `.agents/rules/git-discipline.md` to authorize autonomous PR merging via Merge Commit for regular verified roadmap and refactoring tasks upon green quality checks and internal self-review / security review.
   * Total suite: 43 test suites, 578 tests (542 unit + 36 UI) passing green; 0 typecheck errors, 0 lint warnings, successful build, and verified 1-file-1-commit history.
 
