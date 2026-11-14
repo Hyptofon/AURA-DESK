@@ -605,6 +605,18 @@ describe('Deterministic Production Invariants Behavioral Quality Gate', () => {
         expect(content).not.toMatch(/^import\s+/m)
       }
     })
+
+    it('ensures OpenRouterKeyStore and raw API keys are never imported or referenced in preload or renderer', () => {
+      const preloadCode = readSrc('src/preload/index.ts')
+      const rendererAppCode = readSrc('src/renderer/src/App.tsx')
+
+      for (const source of [preloadCode, rendererAppCode]) {
+        expect(source).not.toContain('openrouter-key-store')
+        expect(source).not.toContain('OpenRouterKeyStore')
+        expect(source).not.toContain('OPENROUTER_API_KEY')
+        expect(source).not.toContain('sk-or-')
+      }
+    })
   })
 
   describe('Capture Document & Build Artifact Availability Invariants', () => {
