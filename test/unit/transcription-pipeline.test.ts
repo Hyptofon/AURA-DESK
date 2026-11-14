@@ -706,16 +706,20 @@ describe('TranscriptionPipeline', () => {
       const observedStatesDuringClassify: Array<{ isTranscribing: boolean; isClassifying: boolean }> =
         []
 
-      let pipelineRef!: TranscriptionPipeline
+      let getPipelineState: () => { isTranscribing: boolean; isClassifying?: boolean } = () => ({
+        isTranscribing: false,
+        isClassifying: false
+      })
       const slowClassifier = new FakeIntentClassifier(
         (input) =>
           new Promise((resolve) => {
             if (input.signal) {
               observedSignals.push(input.signal)
             }
+            const st = getPipelineState()
             observedStatesDuringClassify.push({
-              isTranscribing: pipelineRef.getState().isTranscribing,
-              isClassifying: pipelineRef.getState().isClassifying
+              isTranscribing: st.isTranscribing,
+              isClassifying: Boolean(st.isClassifying)
             })
             setTimeout(() => {
               resolve({
@@ -732,13 +736,14 @@ describe('TranscriptionPipeline', () => {
         { enabled: true, userConsentGranted: true }
       )
 
-      pipelineRef = new TranscriptionPipeline({
+      const pipelineRef = new TranscriptionPipeline({
         provider,
         classifier: slowClassifier,
         utteranceSettleMs: 500,
         windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
         controlsOptions: { debounceMs: 0 }
       })
+      getPipelineState = () => pipelineRef.getState()
 
       // 1. Mic emits an incomplete trailing clause at t=0 -> mic settle timer set for 500ms
       await pipelineRef.ingestChunk(makeChunk('mic', 1000, 100, true))
