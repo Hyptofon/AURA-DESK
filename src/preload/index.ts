@@ -9,7 +9,10 @@ import {
   type IpcResponse
 } from '@/shared/contracts/channels'
 import type { AudioConfig, AudioSessionState, AudioDevice } from '@/shared/contracts/audio'
-import type { TranscriptionSessionState } from '@/shared/contracts/questions'
+import type {
+  SemanticClassifierConfig,
+  TranscriptionSessionState
+} from '@/shared/contracts/questions'
 
 export interface AuraApi {
   platform: string
@@ -43,6 +46,7 @@ export interface AuraApi {
     rms?: number
   }): Promise<{ accepted: boolean }>
   getTranscriptionState?(): Promise<TranscriptionSessionState>
+  setClassifierConfig?(config: SemanticClassifierConfig): Promise<TranscriptionSessionState>
   onTranscriptionStateChanged?(
     callback: (state: TranscriptionSessionState) => void
   ): () => void
@@ -139,6 +143,11 @@ export const auraApi: AuraApi = {
     invokeChannel<{ accepted: boolean }>(IPC_CHANNELS.AUDIO_SUBMIT_CHUNK, chunk),
   getTranscriptionState: () =>
     invokeChannel<TranscriptionSessionState>(IPC_CHANNELS.TRANSCRIPTION_GET_STATE),
+  setClassifierConfig: (config: SemanticClassifierConfig) =>
+    invokeChannel<TranscriptionSessionState>(
+      IPC_CHANNELS.TRANSCRIPTION_SET_CLASSIFIER_CONFIG,
+      config
+    ),
   onTranscriptionStateChanged: (
     callback: (state: TranscriptionSessionState) => void
   ): (() => void) => {

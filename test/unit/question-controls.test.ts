@@ -294,4 +294,120 @@ describe('QuestionControls — Debounce, Confidence, Cooldown, and Cancellation'
       vi.useRealTimers()
     }
   })
+
+  it('preserves two genuinely distinct questions asked in quick succession without overwriting the first', () => {
+    const clock = () => currentTime
+    const controls = new QuestionControls({
+      debounceMs: 1000,
+      clock
+    })
+
+    const onReady = vi.fn()
+    const q1 = createCandidate({
+      id: 'q-1',
+      text: 'Чому не працює цикл подій у Node.js?'
+    })
+    const q2 = createCandidate({
+      id: 'q-2',
+      text: 'І де налаштувати ліміт пам’яті для процесу?'
+    })
+
+    controls.submitCandidate(q1, onReady)
+    vi.advanceTimersByTime(300)
+    currentTime += 300
+
+    // Second distinct question arrives while q1 is still debouncing
+    controls.submitCandidate(q2, onReady)
+    expect(controls.getPendingCount()).toBe(2)
+
+    // After 700ms more, q1 settles and emits while q2 is still pending
+    vi.advanceTimersByTime(700)
+    currentTime += 700
+    expect(onReady).toHaveBeenCalledTimes(1)
+    expect(onReady).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: 'q-1', text: 'Чому не працює цикл подій у Node.js?' })
+    )
+    expect(controls.getPendingCount()).toBe(1)
+
+    // After remaining 300ms, q2 settles and emits
+    vi.advanceTimersByTime(300)
+    currentTime += 300
+    expect(onReady).toHaveBeenCalledTimes(2)
+    expect(onReady).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: 'q-2', text: 'І де налаштувати ліміт пам’яті для процесу?' })
+    )
+    expect(controls.hasPending()).toBe(false)
+  })
+
+  it('enforces bounded pending queue with explicit queue_overflow diagnostics', () => {
+    const clock = () => currentTime
+    const controls = new QuestionControls({
+      debounceMs: 1000,
+      maxPendingCandidates: 2,
+      clock
+    })
+
+    const onReady = vi.fn()
+    const onFiltered = vi.fn()
+
+    controls.submitCandidate(
+      createCandidate({ id: 'q-1', text: 'Як працює віртуальний DOM у React?' }),
+      onReady,
+      onFiltered
+    )
+    controls.submitCandidate(
+      createCandidate({ id: 'q-2', text: 'Куди зберігається кеш бази даних SQLite?' }),
+      onReady,
+      onFiltered
+    )
+    expect(controls.getPendingCount()).toBe(2)
+
+    // Third distinct candidate exceeds maxPendingCandidates=2
+    controls.submitCandidate(
+      createCandidate({ id: 'q-3', text: 'Коли оновлюється токен авторизації сесії?' }),
+      onReady,
+      onFiltered
+    )
+
+    expect(controls.getPendingCount()).toBe(2)
+    expect(controls.getDroppedCount()).toBe(1)
+    expect(controls.getLastDropReason()).toBe('queue_overflow')
+    expect(onFiltered).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'q-3', status: 'filtered' }),
+      'queue_overflow'
+    )
+  })
+
+  it('accepts suggest candidates above minSuggestConfidence and preserves suggest status on emission', () => {
+    const clock = () => currentTime
+    const controls = new QuestionControls({
+      minConfidence: 0.75,
+      minSuggestConfidence: 0.5,
+      debounceMs: 200,
+      clock
+    })
+
+    const onReady = vi.fn()
+    const suggestCandidate = createCandidate({
+      id: 'q-suggest',
+      text: 'Цікаво, чи можна це спростити.',
+      confidence: 0.62,
+      decision: 'suggest',
+      status: 'suggest'
+    })
+
+    controls.submitCandidate(suggestCandidate, onReady)
+    vi.advanceTimersByTime(200)
+
+    expect(onReady).toHaveBeenCalledTimes(1)
+    expect(onReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'q-suggest',
+        status: 'suggest',
+        decision: 'suggest'
+      })
+    )
+  })
 })

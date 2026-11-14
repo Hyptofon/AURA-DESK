@@ -174,3 +174,24 @@ export const AudioSubmitChunkSchema = z
   .strict()
 
 export type AudioSubmitChunk = z.infer<typeof AudioSubmitChunkSchema>
+
+/**
+ * Semantic Classifier opt-in configuration schema.
+ * Remote semantic classification is disabled by default and requires explicit user consent.
+ */
+export const SupportedClassifierModelSchema = z.enum([
+  'google/gemini-3.1-flash-lite',
+  'google/gemini-2.5-flash-lite',
+  'google/gemini-3.5-flash-lite'
+])
+
+export const SemanticClassifierConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    userConsentGranted: z.boolean(),
+    model: SupportedClassifierModelSchema.optional(),
+    preferZdr: z.boolean().optional()
+  })
+  .strict()
+
+export type ValidatedSemanticClassifierConfig = z.infer<typeof SemanticClassifierConfigSchema>

@@ -10,6 +10,7 @@ import {
   SessionStopResponseSchema,
   AudioConfigSchema,
   AudioSubmitChunkSchema,
+  SemanticClassifierConfigSchema,
   type CaptureSelection,
   type SessionStatus,
   type DisplayConfiguration,
@@ -834,15 +835,85 @@ export function registerIpcHandlers(
 
       const defaultState: TranscriptionSessionState = {
         latestSegment: null,
+        latestUtterance: null,
+        latestEvaluation: null,
         latestQuestion: null,
         segmentCount: 0,
         questionCount: 0,
-        isTranscribing: false
+        isTranscribing: false,
+        isClassifying: false,
+        semanticClassifier: {
+          enabled: false,
+          userConsentGranted: false,
+          providerAvailable: false,
+          configuredModel: 'google/gemini-3.1-flash-lite',
+          zdrPreferred: true,
+          requestCount: 0,
+          maxRequests: 100,
+          totalSpentUsd: 0,
+          budgetUsd: 0.25,
+          lastError: null
+        },
+        diagnostics: {
+          queuedWindowCount: 0,
+          droppedWindowCount: 0,
+          lastDropReason: null,
+          pendingCandidateCount: 0,
+          droppedCandidateCount: 0,
+          lastCandidateDropReason: null,
+          utteranceCount: 0
+        }
       }
 
       return {
         ok: true,
         data: activeTranscriptionPipeline ? activeTranscriptionPipeline.getState() : defaultState
+      }
+    }
+  )
+
+  ipc.handle(
+    IPC_CHANNELS.TRANSCRIPTION_SET_CLASSIFIER_CONFIG,
+    async (
+      event: unknown,
+      payload: unknown
+    ): Promise<IpcResponse<TranscriptionSessionState>> => {
+      const auth = validator.validate(event)
+      if (!auth.valid) {
+        return {
+          ok: false,
+          error: {
+            code: auth.errorCode ?? 'UNAUTHORIZED_SENDER',
+            message: auth.message ?? 'Unauthorized IPC invocation'
+          }
+        }
+      }
+
+      const parsed = SemanticClassifierConfigSchema.safeParse(payload)
+      if (!parsed.success) {
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_CLASSIFIER_CONFIG',
+            message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+          }
+        }
+      }
+
+      if (!activeTranscriptionPipeline) {
+        return {
+          ok: false,
+          error: {
+            code: 'TRANSCRIPTION_UNAVAILABLE',
+            message: 'Transcription pipeline is not initialized'
+          }
+        }
+      }
+
+      const updatedState = activeTranscriptionPipeline.setClassifierConfig(parsed.data)
+      return {
+        ok: true,
+        data: updatedState
       }
     }
   )

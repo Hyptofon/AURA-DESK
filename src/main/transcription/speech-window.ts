@@ -72,17 +72,17 @@ export class SpeechWindowAssembler {
       // End of speech utterance reached
       if (this.trailingSilenceMs >= this.silenceHangoverMs) {
         if (this.accumulatedSpeechMs >= this.minSpeechDurationMs) {
-          return this.finalizeBuffer()
+          return this.finalizeBuffer(false)
         }
         this.reset()
         return null
       }
     }
 
-    // Force flush if window duration limit reached
+    // Force flush if window duration limit reached (marks window as forced split for UtteranceAssembler)
     if (this.totalDurationMs >= this.maxWindowDurationMs) {
       if (this.accumulatedSpeechMs >= this.minSpeechDurationMs) {
-        return this.finalizeBuffer()
+        return this.finalizeBuffer(true)
       }
       this.reset()
       return null
@@ -96,7 +96,7 @@ export class SpeechWindowAssembler {
    */
   public flush(): AudioPcmBuffer | null {
     if (this.hasDetectedSpeech && this.accumulatedSpeechMs >= this.minSpeechDurationMs) {
-      return this.finalizeBuffer()
+      return this.finalizeBuffer(false)
     }
     this.reset()
     return null
@@ -121,7 +121,7 @@ export class SpeechWindowAssembler {
     return this.totalDurationMs
   }
 
-  private finalizeBuffer(): AudioPcmBuffer {
+  private finalizeBuffer(isForcedSplit: boolean): AudioPcmBuffer {
     const chunks = this.accumulatedChunks
     const firstChunk = chunks[0]
     const lastChunk = chunks[chunks.length - 1]
@@ -162,7 +162,8 @@ export class SpeechWindowAssembler {
       channels,
       source: this.source,
       startTimestamp,
-      endTimestamp
+      endTimestamp,
+      isForcedSplit
     }
   }
 }

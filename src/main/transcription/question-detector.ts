@@ -1,161 +1,176 @@
 /**
- * Local Heuristic Question Candidate Detector for Ukrainian and English.
- * Evaluates finalized transcript text for interrogative words, sentence structure,
- * question marks, and request patterns without relying solely on punctuation.
+ * Intent-Focused Question & Request Detector for Ukrainian, English, and Mixed Speech.
+ * Replaces legacy first-word keyword heuristics with LocalIntentAnalyzer and ConversationContext.
+ * Also exports `detectLegacyQuestionBaseline` strictly for empirical benchmarking (Section 11).
  */
 
-import type { TranscriptSegment } from '@/shared/contracts/transcription'
-import type { QuestionCandidate } from '@/shared/contracts/questions'
+import type { DetectedLanguage, TranscriptSegment } from '@/shared/contracts/transcription'
+import type {
+  AddresseeAssessment,
+  AssembledUtterance,
+  ConversationIntent,
+  EvidenceStrength,
+  IntentDecision,
+  QuestionCandidate
+} from '@/shared/contracts/questions'
+import type { ConversationContextSnapshot } from './conversation-context'
+import { LocalIntentAnalyzer, type LocalIntentAnalysisResult } from './local-intent-analyzer'
+import { normalizeUtteranceText } from './utterance-assembler'
 
-const UK_INTERROGATIVE_WORDS = [
-  'що',
-  'чому',
-  'як',
-  'де',
-  'коли',
-  'хто',
-  'який',
-  'яка',
-  'яке',
-  'які',
-  'чи',
-  'навіщо',
-  'скільки',
-  'куди',
-  'звідки'
-]
-
-const UK_CONVERSATIONAL_PREFIXES = ['а', 'і', 'та', 'ну', 'от', 'тож']
-const UK_REQUEST_PREAMBLES = [...UK_CONVERSATIONAL_PREFIXES, 'будь ласка', 'привіт', 'слухай', 'слухайте']
-
-const UK_REQUEST_PATTERNS = [
-  'можеш пояснити',
-  'можете пояснити',
-  'чи можеш',
-  'чи можете',
-  'підкажи',
-  'підкажіть',
-  'поясни',
-  'поясніть',
-  'розкажи',
-  'розкажіть',
-  'допоможи',
-  'допоможіть',
-  'скажи',
-  'скажіть'
-]
-
-const EN_INTERROGATIVE_WORDS = [
-  'what',
-  'why',
-  'how',
-  'where',
-  'when',
-  'who',
-  'which',
-  'whose',
-  'whom'
-]
-
-const EN_CONVERSATIONAL_PREFIXES = ['and', 'so', 'well', 'now', 'then', 'but']
-const EN_REQUEST_PREAMBLES = [...EN_CONVERSATIONAL_PREFIXES, 'please', 'hello', 'hi', 'hey', 'excuse me']
-
-const EN_REQUEST_PATTERNS = [
-  'can you',
-  'could you',
-  'would you',
-  'can someone',
-  'could anyone',
-  'can we',
-  'can i',
-  'could we',
-  'is there',
-  'are there',
-  'is this',
-  'is that',
-  'is it',
-  'are you',
-  'are we',
-  'are they',
-  'do you',
-  'does this',
-  'does it',
-  'did you',
-  'did it',
-  'will this',
-  'will it',
-  'should we',
-  'should i',
-  'explain this',
-  'please explain',
-  'tell me'
-]
-
-function matchesPatternAtStart(
-  text: string,
-  pattern: string,
-  preambles: string[]
-): boolean {
-  if (text.startsWith(pattern)) {
-    const nextChar = text.charAt(pattern.length)
-    if (!nextChar || /\s/.test(nextChar)) {
-      return true
-    }
-  }
-
-  for (const preamble of preambles) {
-    const combined = `${preamble} ${pattern}`
-    if (text.startsWith(combined)) {
-      const nextChar = text.charAt(combined.length)
-      if (!nextChar || /\s/.test(nextChar)) {
-        return true
-      }
-    }
-  }
-
-  return false
-}
-
-function matchesRequestPattern(
-  text: string,
-  pattern: string,
-  preambles: string[]
-): boolean {
-  const clauses = text.split(/[,;:—–-]/).map((c) => c.trim()).filter(Boolean)
-  for (const clause of clauses) {
-    if (matchesPatternAtStart(clause, pattern, preambles)) {
-      return true
-    }
-  }
-  return false
-}
+const defaultAnalyzer = new LocalIntentAnalyzer()
 
 export interface DetectionResult {
   isQuestion: boolean
-  confidence: number // Heuristic confidence in range [0, 1]
-  language: 'uk' | 'en' | 'unknown'
+  intent: ConversationIntent
+  decision: IntentDecision
+  evidenceStrength: EvidenceStrength
+  /** Heuristic evidence score [0, 1] derived from evidenceStrength; NOT a calibrated probability */
+  confidence: number
+  language: DetectedLanguage
+  requiresResponse: boolean
+  addressee: AddresseeAssessment
+  contextUsed: boolean
+  evidence: string[]
+  uncertain: boolean
+  isAmbiguous: boolean
   matchedPattern?: string
 }
 
 /**
- * Detects whether a text segment represents a question candidate.
+ * Maps categorical heuristic evidence strength to a transparent numeric score for candidate sorting/compatibility.
+ * Avoids arbitrary 0.95/0.85 punctuation inflation.
  */
-export function detectQuestionInText(text: string): DetectionResult {
-  const trimmed = text.trim()
-  if (trimmed.length < 3) {
-    return { isQuestion: false, confidence: 0, language: 'unknown' }
+export function evidenceStrengthToHeuristicScore(
+  strength: EvidenceStrength,
+  decision: IntentDecision
+): number {
+  if (decision === 'ignore' || strength === 'none') return 0
+  if (strength === 'strong') return 0.9
+  if (strength === 'moderate') return decision === 'ready' ? 0.8 : 0.75
+  return 0.5
+}
+
+/**
+ * Evaluates text (with optional recent conversation context) using the intent-focused analyzer.
+ */
+export function detectQuestionInText(
+  text: string,
+  context?: ConversationContextSnapshot
+): DetectionResult {
+  const analysis: LocalIntentAnalysisResult = defaultAnalyzer.analyze(
+    {
+      text,
+      source: 'mic',
+      language: 'unknown'
+    },
+    context
+  )
+
+  const isActionableOrSuggested = analysis.decision === 'ready' || analysis.decision === 'suggest'
+  const confidence = evidenceStrengthToHeuristicScore(analysis.evidenceStrength, analysis.decision)
+
+  return {
+    isQuestion: isActionableOrSuggested,
+    intent: analysis.intent,
+    decision: analysis.decision,
+    evidenceStrength: analysis.evidenceStrength,
+    confidence,
+    language: analysis.language,
+    requiresResponse: analysis.requiresResponse,
+    addressee: analysis.addressee,
+    contextUsed: analysis.contextUsed,
+    evidence: analysis.evidence,
+    uncertain: analysis.uncertain,
+    isAmbiguous: analysis.isAmbiguous,
+    matchedPattern: analysis.matchedPattern
+  }
+}
+
+/**
+ * Evaluates an AssembledUtterance (or finalized TranscriptSegment) and creates a QuestionCandidate
+ * when the decision is 'ready' or 'suggest'.
+ */
+export function evaluateUtteranceForQuestion(
+  utterance: AssembledUtterance,
+  context?: ConversationContextSnapshot
+): { candidate: QuestionCandidate | null; analysis: LocalIntentAnalysisResult } {
+  const analysis = defaultAnalyzer.analyze(utterance, context)
+  if (analysis.decision === 'ignore') {
+    return { candidate: null, analysis }
   }
 
-  // Detect predominant alphabet
-  const hasCyrillic = /[\u0400-\u04FF]/.test(trimmed)
-  const hasLatin = /[a-zA-Z]/.test(trimmed)
-  const language: 'uk' | 'en' | 'unknown' = hasCyrillic ? 'uk' : hasLatin ? 'en' : 'unknown'
+  const confidence = evidenceStrengthToHeuristicScore(analysis.evidenceStrength, analysis.decision)
+  const primarySegmentId = utterance.segmentIds[utterance.segmentIds.length - 1] ?? utterance.id
 
+  const candidate: QuestionCandidate = {
+    id: `q-${utterance.id}`,
+    segmentId: primarySegmentId,
+    source: utterance.source,
+    timestamp: utterance.startTimestamp,
+    endTimestamp: utterance.endTimestamp,
+    text: utterance.text,
+    language: analysis.language,
+    confidence,
+    evidenceStrength: analysis.evidenceStrength,
+    intent: analysis.intent,
+    decision: analysis.decision,
+    route: 'local',
+    contextUsed: analysis.contextUsed,
+    requiresResponse: analysis.requiresResponse,
+    addressee: analysis.addressee,
+    evidence: analysis.evidence,
+    uncertain: analysis.uncertain,
+    status: analysis.decision === 'suggest' ? 'suggest' : 'detected',
+    matchedPattern: analysis.matchedPattern
+  }
+
+  return { candidate, analysis }
+}
+
+/**
+ * Evaluates a finalized TranscriptSegment and creates a QuestionCandidate if detected.
+ */
+export function evaluateSegmentForQuestion(
+  segment: TranscriptSegment,
+  context?: ConversationContextSnapshot
+): QuestionCandidate | null {
+  if (!segment.isFinal || !segment.text) {
+    return null
+  }
+
+  const utterance: AssembledUtterance = {
+    id: segment.id,
+    source: segment.source,
+    startTimestamp: segment.startTimestamp,
+    endTimestamp: segment.endTimestamp,
+    text: segment.text,
+    normalizedText: normalizeUtteranceText(segment.text),
+    language: segment.language ?? 'unknown',
+    segmentIds: [segment.id],
+    fragmentCount: 1,
+    isComplete: true,
+    flushReason: 'silence_boundary'
+  }
+
+  const { candidate } = evaluateUtteranceForQuestion(utterance, context)
+  return candidate
+}
+
+/**
+ * Legacy keyword-based detector preserved strictly as Baseline A for empirical evaluation (Section 11).
+ * Do NOT use in production pipeline.
+ */
+export function detectLegacyQuestionBaseline(text: string): {
+  isQuestion: boolean
+  decision: IntentDecision
+  confidence: number
+} {
+  const trimmed = text.trim()
+  if (trimmed.length < 3) {
+    return { isQuestion: false, decision: 'ignore', confidence: 0 }
+  }
   const lower = trimmed.toLowerCase()
-  const hasQuestionMark = trimmed.endsWith('?') || trimmed.includes('?')
-  const cleanForMatching = lower.replace(/["'«»“”„’`]/g, '').trim()
-
-  // Normalize tokens: strip quotes, brackets, and punctuation safely
+  const hasQuestionMark = trimmed.includes('?')
   const words = lower
     .replace(/["'«»“”„’`?.,/#!$%^&*;:{}=\-_~()]/g, ' ')
     .split(/\s+/)
@@ -163,105 +178,37 @@ export function detectQuestionInText(text: string): DetectionResult {
   const firstWord = words[0] || ''
   const secondWord = words[1] || ''
 
-  // 1. Ukrainian detection
-  if (language === 'uk' || language === 'unknown') {
-    if (UK_INTERROGATIVE_WORDS.includes(firstWord)) {
-      return {
-        isQuestion: true,
-        confidence: hasQuestionMark ? 0.95 : 0.85,
-        language: 'uk',
-        matchedPattern: firstWord
-      }
-    }
+  const ukWords = [
+    'що',
+    'чому',
+    'як',
+    'де',
+    'коли',
+    'хто',
+    'який',
+    'яка',
+    'яке',
+    'які',
+    'чи',
+    'навіщо',
+    'скільки',
+    'куди',
+    'звідки'
+  ]
+  const enWords = ['what', 'why', 'how', 'where', 'when', 'who', 'which', 'whose', 'whom']
+  const prefixes = ['а', 'і', 'та', 'ну', 'от', 'тож', 'and', 'so', 'well', 'now', 'then', 'but']
 
-    if (UK_CONVERSATIONAL_PREFIXES.includes(firstWord) && UK_INTERROGATIVE_WORDS.includes(secondWord)) {
-      return {
-        isQuestion: true,
-        confidence: hasQuestionMark ? 0.95 : 0.85,
-        language: 'uk',
-        matchedPattern: `${firstWord} ${secondWord}`
-      }
-    }
-
-    for (const pattern of UK_REQUEST_PATTERNS) {
-      if (matchesRequestPattern(cleanForMatching, pattern, UK_REQUEST_PREAMBLES)) {
-        return {
-          isQuestion: true,
-          confidence: hasQuestionMark ? 0.95 : 0.9,
-          language: 'uk',
-          matchedPattern: pattern
-        }
-      }
-    }
+  if (
+    ukWords.includes(firstWord) ||
+    enWords.includes(firstWord) ||
+    (prefixes.includes(firstWord) && (ukWords.includes(secondWord) || enWords.includes(secondWord)))
+  ) {
+    return { isQuestion: true, decision: 'ready', confidence: hasQuestionMark ? 0.95 : 0.85 }
   }
 
-  // 2. English detection
-  if (language === 'en' || language === 'unknown') {
-    if (EN_INTERROGATIVE_WORDS.includes(firstWord)) {
-      return {
-        isQuestion: true,
-        confidence: hasQuestionMark ? 0.95 : 0.85,
-        language: 'en',
-        matchedPattern: firstWord
-      }
-    }
-
-    if (EN_CONVERSATIONAL_PREFIXES.includes(firstWord) && EN_INTERROGATIVE_WORDS.includes(secondWord)) {
-      return {
-        isQuestion: true,
-        confidence: hasQuestionMark ? 0.95 : 0.85,
-        language: 'en',
-        matchedPattern: `${firstWord} ${secondWord}`
-      }
-    }
-
-    for (const pattern of EN_REQUEST_PATTERNS) {
-      if (matchesRequestPattern(cleanForMatching, pattern, EN_REQUEST_PREAMBLES)) {
-        return {
-          isQuestion: true,
-          confidence: hasQuestionMark ? 0.95 : 0.9,
-          language: 'en',
-          matchedPattern: pattern
-        }
-      }
-    }
-  }
-
-  // 3. Fallback: Ending question mark on meaningful sentences (>= 3 words)
   if (hasQuestionMark && words.length >= 2) {
-    return {
-      isQuestion: true,
-      confidence: 0.8,
-      language,
-      matchedPattern: '?'
-    }
+    return { isQuestion: true, decision: 'ready', confidence: 0.8 }
   }
 
-  return { isQuestion: false, confidence: 0, language }
-}
-
-/**
- * Evaluates a finalized TranscriptSegment and creates a QuestionCandidate if detected.
- */
-export function evaluateSegmentForQuestion(segment: TranscriptSegment): QuestionCandidate | null {
-  if (!segment.isFinal || !segment.text) {
-    return null
-  }
-
-  const detection = detectQuestionInText(segment.text)
-  if (!detection.isQuestion) {
-    return null
-  }
-
-  return {
-    id: `q-${segment.id}`,
-    segmentId: segment.id,
-    source: segment.source,
-    timestamp: segment.startTimestamp,
-    text: segment.text,
-    language: detection.language,
-    confidence: detection.confidence,
-    status: 'detected',
-    matchedPattern: detection.matchedPattern
-  }
+  return { isQuestion: false, decision: 'ignore', confidence: 0 }
 }

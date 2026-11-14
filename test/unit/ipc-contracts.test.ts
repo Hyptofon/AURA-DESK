@@ -12,7 +12,9 @@ import {
   SessionStartResponseSchema,
   SessionStopResponseSchema,
   CaptureStatusSchema,
-  AudioSubmitChunkSchema
+  AudioSubmitChunkSchema,
+  SemanticClassifierConfigSchema,
+  SupportedClassifierModelSchema
 } from '@/shared/contracts/ipc'
 
 describe('IPC Contracts & Schemas', () => {
@@ -26,6 +28,9 @@ describe('IPC Contracts & Schemas', () => {
       expect(isAllowedIpcChannel(IPC_CHANNELS.SESSION_STATUS_CHANGED)).toBe(true)
       expect(isAllowedIpcChannel(IPC_CHANNELS.DISPLAYS_GET_ALL)).toBe(true)
       expect(isAllowedIpcChannel(IPC_CHANNELS.DISPLAYS_CHANGED)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.TRANSCRIPTION_GET_STATE)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.TRANSCRIPTION_STATE_CHANGED)).toBe(true)
+      expect(isAllowedIpcChannel(IPC_CHANNELS.TRANSCRIPTION_SET_CLASSIFIER_CONFIG)).toBe(true)
     })
 
     it('rejects unauthorized or arbitrary channels', () => {
@@ -401,6 +406,43 @@ describe('IPC Contracts & Schemas', () => {
           durationMs: -5
         }
         expect(AudioSubmitChunkSchema.safeParse(chunk).success).toBe(false)
+      })
+    })
+
+    describe('SemanticClassifierConfigSchema', () => {
+      it('accepts valid opt-in classifier config with supported low-cost models', () => {
+        for (const model of [
+          'google/gemini-3.1-flash-lite',
+          'google/gemini-2.5-flash-lite',
+          'google/gemini-3.5-flash-lite'
+        ] as const) {
+          expect(SupportedClassifierModelSchema.safeParse(model).success).toBe(true)
+          const res = SemanticClassifierConfigSchema.safeParse({
+            enabled: true,
+            userConsentGranted: true,
+            model,
+            preferZdr: true
+          })
+          expect(res.success).toBe(true)
+        }
+      })
+
+      it('rejects unsupported model names or extra properties', () => {
+        expect(
+          SemanticClassifierConfigSchema.safeParse({
+            enabled: true,
+            userConsentGranted: true,
+            model: 'openai/gpt-4o'
+          }).success
+        ).toBe(false)
+
+        expect(
+          SemanticClassifierConfigSchema.safeParse({
+            enabled: true,
+            userConsentGranted: true,
+            apiKey: 'sk-or-v1-secret'
+          }).success
+        ).toBe(false)
       })
     })
   })

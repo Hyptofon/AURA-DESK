@@ -7,6 +7,8 @@ import type { AudioSourceKind } from './audio'
 
 export type TranscriptionLanguage = 'uk' | 'en' | 'auto'
 
+export type DetectedLanguage = 'uk' | 'en' | 'mixed' | 'unknown'
+
 export interface AudioPcmBuffer {
   data: Int16Array
   sampleRate: number
@@ -14,6 +16,8 @@ export interface AudioPcmBuffer {
   source: AudioSourceKind
   startTimestamp: number
   endTimestamp: number
+  /** True when the audio window was force-flushed due to maxWindowDurationMs rather than silence hangover */
+  isForcedSplit?: boolean
 }
 
 export interface TranscriptionRequest {
@@ -28,14 +32,16 @@ export interface TranscriptSegment {
   startTimestamp: number
   endTimestamp: number
   text: string
-  language?: 'uk' | 'en'
+  language?: DetectedLanguage
   confidence?: number
   isFinal: boolean
+  /** True when produced from a force-split audio window before natural silence hangover */
+  isForcedSplit?: boolean
 }
 
 export interface TranscriptionResult {
   text: string
-  language?: 'uk' | 'en'
+  language?: DetectedLanguage
   confidence?: number
   segments?: TranscriptSegment[]
   durationMs: number
