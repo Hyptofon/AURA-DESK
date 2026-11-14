@@ -39,6 +39,9 @@ describe('Real Preload AuraApi and Context Isolation', () => {
       expect(typeof auraApi.setAudioConfig).toBe('function')
       expect(typeof auraApi.getAudioDevices).toBe('function')
       expect(typeof auraApi.onAudioStateChanged).toBe('function')
+      expect(typeof auraApi.getTranscriptionState).toBe('function')
+      expect(typeof auraApi.setClassifierConfig).toBe('function')
+      expect(typeof auraApi.onTranscriptionStateChanged).toBe('function')
     })
 
     it('does not expose raw Node or Electron APIs on auraApi', () => {
@@ -332,6 +335,42 @@ describe('Real Preload AuraApi and Context Isolation', () => {
           IPC_CHANNELS.AUDIO_STATE_CHANGED,
           registeredHandler
         )
+      })
+
+      it('calls TRANSCRIPTION_SET_CLASSIFIER_CONFIG channel with config payload', async () => {
+        const config = {
+          enabled: true,
+          userConsentGranted: true,
+          model: 'google/gemini-3.1-flash-lite' as const
+        }
+        const fakeState = {
+          latestSegment: null,
+          latestQuestion: null,
+          segmentCount: 0,
+          questionCount: 0,
+          isTranscribing: false,
+          semanticClassifier: {
+            enabled: true,
+            userConsentGranted: true,
+            providerAvailable: true,
+            configuredModel: 'google/gemini-3.1-flash-lite' as const,
+            zdrPreferred: true,
+            requestCount: 0,
+            maxRequests: 100,
+            totalSpentUsd: 0,
+            budgetUsd: 0.25,
+            lastError: null
+          }
+        }
+        mockInvoke.mockResolvedValueOnce({ ok: true, data: fakeState })
+
+        const result = await auraApi.setClassifierConfig!(config)
+
+        expect(mockInvoke).toHaveBeenCalledWith(
+          IPC_CHANNELS.TRANSCRIPTION_SET_CLASSIFIER_CONFIG,
+          config
+        )
+        expect(result).toEqual(fakeState)
       })
     })
 
