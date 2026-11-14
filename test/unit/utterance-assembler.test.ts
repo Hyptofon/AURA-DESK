@@ -54,14 +54,14 @@ describe('UtteranceAssembler — Context-Safe Semantic Utterance Assembly', () =
     )
     expect(emitted2).toHaveLength(0)
 
-    // Segment 3: 10s - 13s (natural completion)
+    // Segment 3: 10s - 13s (natural completion with mixed English technical phrase)
     const emitted3 = assembler.ingestSegment(
       makeSegment({
         id: 'seg-3',
         source: 'mic',
         startTimestamp: 11200,
         endTimestamp: 14000,
-        text: 'помилка ізоляції контексту в preload скрипті',
+        text: 'помилка ізоляції контексту в preload bundle скрипті',
         isForcedSplit: false
       })
     )
@@ -79,7 +79,7 @@ describe('UtteranceAssembler — Context-Safe Semantic Utterance Assembly', () =
     expect(utt.segmentIds).toEqual(['seg-1', 'seg-2', 'seg-3'])
     expect(utt.language).toBe('mixed')
     expect(utt.text).toBe(
-      'Підкажіть будь ласка чому коли ми запускаємо локальну збірку в режимі розробки для двомоніторної конфігурації у нас виникає помилка ізоляції контексту в preload скрипті'
+      'Підкажіть будь ласка чому коли ми запускаємо локальну збірку в режимі розробки для двомоніторної конфігурації у нас виникає помилка ізоляції контексту в preload bundle скрипті'
     )
   })
 
