@@ -5,7 +5,9 @@ import {
   stripMarkdownFences
 } from '@/main/transcription/intent-classifier-prompts'
 import type { IntentClassificationInput } from '@/main/transcription/intent-classifier'
-import type { AssembledUtterance } from '@/shared/contracts/questions'
+import type { AssembledUtterance, ConversationIntent, IntentDecision } from '@/shared/contracts/questions'
+import type { ConversationTurn } from '@/main/transcription/conversation-context'
+import type { LocalIntentAnalysisResult } from '@/main/transcription/local-intent-analyzer'
 
 function makeUtterance(
   text: string,
@@ -26,44 +28,70 @@ function makeUtterance(
   }
 }
 
+function makeTurn(
+  id: string,
+  source: 'mic' | 'system',
+  language: 'uk' | 'en' | 'mixed' | 'unknown',
+  intent: ConversationIntent,
+  decision: IntentDecision,
+  text: string
+): ConversationTurn {
+  return {
+    utteranceId: id,
+    source,
+    startTimestamp: 1000,
+    endTimestamp: 2000,
+    text,
+    language,
+    intent,
+    decision,
+    wasQuestionOrRequest: decision !== 'ignore',
+    topicKeywords: [],
+    estimatedTokens: Math.ceil(text.length / 4)
+  }
+}
+
 function makeInput(
   utteranceText: string,
   turns: Array<{
     source: 'mic' | 'system'
     language: 'uk' | 'en' | 'mixed' | 'unknown'
-    intent: string
-    decision: string
+    intent: ConversationIntent
+    decision: IntentDecision
     text: string
   }> = []
 ): IntentClassificationInput {
   const utt = makeUtterance(utteranceText)
+  const conversationTurns = turns.map((t, idx) =>
+    makeTurn(`turn-${idx + 1}`, t.source, t.language, t.intent, t.decision, t.text)
+  )
+
+  const localAnalysis: LocalIntentAnalysisResult = {
+    intent: 'explanation_request',
+    decision: 'suggest',
+    evidenceStrength: 'moderate',
+    heuristicScore: 0.65,
+    language: 'uk',
+    requiresResponse: true,
+    addressee: 'assistant_or_user',
+    contextUsed: turns.length > 0,
+    evidence: ['intent:explanation_request'],
+    uncertain: false,
+    isAmbiguous: true
+  }
+
   return {
     utterance: utt,
     context: {
-      turns: turns.map((t, idx) => ({
-        id: `turn-${idx + 1}`,
-        source: t.source,
-        language: t.language as 'uk' | 'en' | 'mixed' | 'unknown',
-        intent: t.intent as any,
-        decision: t.decision as any,
-        text: t.text,
-        timestamp: 1000 + idx * 1000,
-        requiresResponse: false
-      })),
-      recentTopics: [],
-      dominantLanguage: 'uk',
-      lastSpokenTimestamp: 1500
+      turns: conversationTurns,
+      lastTurn: conversationTurns[conversationTurns.length - 1] ?? null,
+      timeSinceLastTurnMs: conversationTurns.length > 0 ? 500 : null,
+      hasRecentQuestionOrRequest: conversationTurns.some((t) => t.wasQuestionOrRequest),
+      hasRecentTechnicalDiscussion: false,
+      sharedTopicKeywords: [],
+      totalEstimatedTokens: conversationTurns.reduce((acc, t) => acc + t.estimatedTokens, 0)
     },
-    localAnalysis: {
-      intent: 'explanation_request',
-      decision: 'suggest',
-      strength: 'moderate',
-      confidence: 0.65,
-      isQuestion: true,
-      positiveEvidence: ['intent:explanation_request'],
-      negativeEvidence: [],
-      candidateCategory: 'explanation_request'
-    }
+    localAnalysis
   }
 }
 
