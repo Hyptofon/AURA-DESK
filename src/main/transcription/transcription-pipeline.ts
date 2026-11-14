@@ -5,7 +5,7 @@
  * context, hybrid local/OpenRouter intent classification, and question candidate controls.
  */
 
-import type { AudioChunk } from '@/shared/contracts/audio'
+import type { AudioChunk, AudioSourceKind } from '@/shared/contracts/audio'
 import type {
   AudioPcmBuffer,
   DetectedLanguage,
@@ -126,13 +126,15 @@ export class TranscriptionPipeline {
   private evaluations: IntentEvaluationRecord[] = []
   private questions: QuestionCandidate[] = []
 
+  private isProcessingWindow = false
   private isTranscribing = false
+  private currentTranscribingSource: AudioSourceKind | null = null
   private isClassifying = false
   private isPaused = false
   private sessionGeneration = 0
   private currentAbortController: AbortController | null = null
-  private currentClassifierAbortController: AbortController | null = null
-  private utteranceSettleTimer: NodeJS.Timeout | null = null
+  private activeClassifierAbortControllers = new Set<AbortController>()
+  private utteranceSettleTimers = new Map<AudioSourceKind, NodeJS.Timeout>()
 
   private pendingAudioWindows: AudioPcmBuffer[] = []
   private droppedWindowCount = 0
@@ -164,6 +166,14 @@ export class TranscriptionPipeline {
   public async ingestChunk(chunk: AudioChunk): Promise<void> {
     if (this.isPaused) {
       return
+    }
+
+    if (
+      chunk.isSpeech &&
+      this.utteranceSettleTimers.has(chunk.source) &&
+      this.utteranceAssembler.hasPending(chunk.source)
+    ) {
+      this.scheduleUtteranceSettleFlush(chunk.source, this.sessionGeneration)
     }
 
     const assembler = chunk.source === 'mic' ? this.micAssembler : this.systemAssembler
@@ -241,13 +251,11 @@ export class TranscriptionPipeline {
       this.currentAbortController.abort()
       this.currentAbortController = null
     }
-    if (this.currentClassifierAbortController) {
-      this.currentClassifierAbortController.abort()
-      this.currentClassifierAbortController = null
-    }
+    this.abortAllClassifiers()
 
+    this.isProcessingWindow = false
     this.isTranscribing = false
-    this.isClassifying = false
+    this.currentTranscribingSource = null
     this.notifyStateChanged()
   }
 
@@ -282,13 +290,11 @@ export class TranscriptionPipeline {
       this.currentAbortController.abort()
       this.currentAbortController = null
     }
-    if (this.currentClassifierAbortController) {
-      this.currentClassifierAbortController.abort()
-      this.currentClassifierAbortController = null
-    }
+    this.abortAllClassifiers()
 
+    this.isProcessingWindow = false
     this.isTranscribing = false
-    this.isClassifying = false
+    this.currentTranscribingSource = null
     this.notifyStateChanged()
   }
 
@@ -308,7 +314,7 @@ export class TranscriptionPipeline {
       return
     }
 
-    if (this.isTranscribing) {
+    if (this.isProcessingWindow) {
       if (this.pendingAudioWindows.length >= this.maxPendingWindows) {
         // Explicit bounded backpressure: evict oldest stale window and record overflow reason
         this.pendingAudioWindows.shift()
@@ -323,7 +329,9 @@ export class TranscriptionPipeline {
     const currentGen = this.sessionGeneration
     const abortController = new AbortController()
     this.currentAbortController = abortController
+    this.isProcessingWindow = true
     this.isTranscribing = true
+    this.currentTranscribingSource = window.source
     this.notifyStateChanged()
 
     try {
@@ -339,6 +347,10 @@ export class TranscriptionPipeline {
       ) {
         return
       }
+
+      this.isTranscribing = false
+      this.currentAbortController = null
+      this.currentTranscribingSource = null
 
       const trimmedText = result.text?.trim()
       if (trimmedText && trimmedText.length > 0) {
@@ -392,6 +404,7 @@ export class TranscriptionPipeline {
             (isLastSegmentInWindow && hasMoreQueuedForSameSource)
 
           if (!shouldHoldForContinuation && this.utteranceAssembler.hasPending(segment.source)) {
+            this.clearUtteranceSettleTimer(segment.source)
             const flushed = this.utteranceAssembler.flushSource(
               segment.source,
               'silence_boundary'
@@ -400,7 +413,9 @@ export class TranscriptionPipeline {
               emittedUtterances.push(flushed)
             }
           } else if (this.utteranceAssembler.hasPending(segment.source)) {
-            this.scheduleUtteranceSettleFlush(currentGen)
+            this.scheduleUtteranceSettleFlush(segment.source, currentGen)
+          } else {
+            this.clearUtteranceSettleTimer(segment.source)
           }
 
           for (const utterance of emittedUtterances) {
@@ -420,7 +435,9 @@ export class TranscriptionPipeline {
       console.error('Transcription inference error:', err)
     } finally {
       if (this.sessionGeneration === currentGen) {
+        this.isProcessingWindow = false
         this.isTranscribing = false
+        this.currentTranscribingSource = null
         this.currentAbortController = null
         this.notifyStateChanged()
 
@@ -432,25 +449,60 @@ export class TranscriptionPipeline {
     }
   }
 
-  private scheduleUtteranceSettleFlush(expectedGen: number): void {
-    this.clearUtteranceSettleTimer()
-    this.utteranceSettleTimer = setTimeout(() => {
-      this.utteranceSettleTimer = null
+  private isSourceBusyWithSpeechOrStt(source: AudioSourceKind): boolean {
+    const assembler = source === 'mic' ? this.micAssembler : this.systemAssembler
+    if (assembler.getAccumulatedSpeechDurationMs() > 0) {
+      return true
+    }
+    if (this.currentTranscribingSource === source) {
+      return true
+    }
+    return this.pendingAudioWindows.some((w) => w.source === source)
+  }
+
+  private scheduleUtteranceSettleFlush(source: AudioSourceKind, expectedGen: number): void {
+    this.clearUtteranceSettleTimer(source)
+    const timer = setTimeout(() => {
+      this.utteranceSettleTimers.delete(source)
       if (this.sessionGeneration !== expectedGen || this.isPaused) {
         return
       }
-      const flushed = this.utteranceAssembler.flushAll('silence_boundary')
-      for (const utterance of flushed) {
-        void this.evaluateAndDispatchUtterance(utterance, expectedGen)
+      if (!this.utteranceAssembler.hasPending(source)) {
+        return
+      }
+      if (this.isSourceBusyWithSpeechOrStt(source)) {
+        this.scheduleUtteranceSettleFlush(source, expectedGen)
+        return
+      }
+      const flushed = this.utteranceAssembler.flushSource(source, 'silence_boundary')
+      if (flushed) {
+        void this.evaluateAndDispatchUtterance(flushed, expectedGen)
       }
     }, this.utteranceSettleMs)
+    this.utteranceSettleTimers.set(source, timer)
   }
 
-  private clearUtteranceSettleTimer(): void {
-    if (this.utteranceSettleTimer) {
-      clearTimeout(this.utteranceSettleTimer)
-      this.utteranceSettleTimer = null
+  private clearUtteranceSettleTimer(source?: AudioSourceKind): void {
+    if (source) {
+      const timer = this.utteranceSettleTimers.get(source)
+      if (timer) {
+        clearTimeout(timer)
+        this.utteranceSettleTimers.delete(source)
+      }
+      return
     }
+    for (const timer of this.utteranceSettleTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.utteranceSettleTimers.clear()
+  }
+
+  private abortAllClassifiers(): void {
+    for (const controller of this.activeClassifierAbortControllers) {
+      controller.abort()
+    }
+    this.activeClassifierAbortControllers.clear()
+    this.isClassifying = false
   }
 
   private async evaluateAndDispatchUtterance(
@@ -464,7 +516,7 @@ export class TranscriptionPipeline {
     this.addUtterance(utterance)
 
     const classifierAbort = new AbortController()
-    this.currentClassifierAbortController = classifierAbort
+    this.activeClassifierAbortControllers.add(classifierAbort)
     this.isClassifying = true
     this.notifyStateChanged()
 
@@ -502,11 +554,9 @@ export class TranscriptionPipeline {
         )
       }
     } finally {
+      this.activeClassifierAbortControllers.delete(classifierAbort)
       if (this.sessionGeneration === expectedGen) {
-        this.isClassifying = false
-        if (this.currentClassifierAbortController === classifierAbort) {
-          this.currentClassifierAbortController = null
-        }
+        this.isClassifying = this.activeClassifierAbortControllers.size > 0
         this.notifyStateChanged()
       }
     }
