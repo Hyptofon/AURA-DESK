@@ -604,4 +604,176 @@ describe('TranscriptionPipeline', () => {
     expect(emitted[2].intent).toBe('indirect_question')
     expect(emitted[2].status).toBe('ready')
   })
+
+  it('does not prematurely flush a forced-split utterance when real-time continuation speech exceeds utteranceSettleMs', async () => {
+    vi.useFakeTimers()
+    try {
+      let windowCall = 0
+      const multiPartProvider = {
+        id: 'realtime-multipart-stt',
+        name: 'Realtime Multipart STT',
+        transcribe: vi.fn().mockImplementation(() => {
+          windowCall += 1
+          if (windowCall === 1) {
+            return Promise.resolve({
+              text: 'Поясни будь ласка як саме в нашому проєкті організовано передачу повідомлень',
+              language: 'uk' as const,
+              confidence: 0.92,
+              durationMs: 1000
+            })
+          }
+          return Promise.resolve({
+            text: 'між головним процесом Electron та ізольованим процесом рендерера',
+            language: 'uk' as const,
+            confidence: 0.94,
+            durationMs: 800
+          })
+        })
+      }
+
+      const pipeline = new TranscriptionPipeline({
+        provider: multiPartProvider,
+        utteranceSettleMs: 300,
+        windowOptions: {
+          minSpeechDurationMs: 200,
+          silenceHangoverMs: 200,
+          maxWindowDurationMs: 1000
+        },
+        controlsOptions: { debounceMs: 0 }
+      })
+
+      const emittedQuestions: QuestionCandidate[] = []
+      pipeline.onQuestionDetected((q) => emittedQuestions.push(q))
+
+      // First 1000ms of speech in real-time 200ms steps -> force-splits Window 1
+      for (let i = 0; i < 5; i++) {
+        await pipeline.ingestChunk(makeChunk('mic', 1000 + i * 200, 200, true))
+        vi.advanceTimersByTime(200)
+      }
+
+      expect(pipeline.getState().segmentCount).toBe(1)
+      expect(emittedQuestions).toHaveLength(0)
+
+      // Speaker continues speaking for another 800ms (exceeding utteranceSettleMs=300ms!)
+      for (let i = 0; i < 4; i++) {
+        await pipeline.ingestChunk(makeChunk('mic', 2000 + i * 200, 200, true))
+        vi.advanceTimersByTime(200)
+      }
+
+      // Must NOT have prematurely flushed Window 1 while user is still speaking Window 2
+      expect(emittedQuestions).toHaveLength(0)
+
+      // Speaker finishes with 200ms silence hangover -> Window 2 flushes and merges with Window 1
+      await pipeline.ingestChunk(makeChunk('mic', 2800, 200, false))
+      vi.advanceTimersByTime(200)
+
+      const state = pipeline.getState()
+      expect(state.latestUtterance?.fragmentCount).toBe(2)
+      expect(state.latestUtterance?.text).toBe(
+        'Поясни будь ласка як саме в нашому проєкті організовано передачу повідомлень між головним процесом Electron та ізольованим процесом рендерера'
+      )
+      expect(emittedQuestions).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('isolates per-source settle timers between mic and system and aborts all overlapping classifier calls on stop()', async () => {
+    vi.useFakeTimers()
+    try {
+      const provider = {
+        id: 'dual-source-stt',
+        name: 'Dual Source STT',
+        transcribe: vi.fn().mockImplementation(({ audio }) => {
+          if (audio.source === 'mic') {
+            return Promise.resolve({
+              text: 'Не впевнений, що цей підхід правильний і',
+              language: 'uk' as const,
+              confidence: 0.9,
+              durationMs: 400
+            })
+          }
+          return Promise.resolve({
+            text: 'Я вже годину дивлюся на цей код і не розумію, де помилка та',
+            language: 'uk' as const,
+            confidence: 0.9,
+            durationMs: 400
+          })
+        })
+      }
+
+      const observedSignals: AbortSignal[] = []
+      const observedStatesDuringClassify: Array<{ isTranscribing: boolean; isClassifying: boolean }> =
+        []
+
+      let pipelineRef!: TranscriptionPipeline
+      const slowClassifier = new FakeIntentClassifier(
+        (input) =>
+          new Promise((resolve) => {
+            if (input.signal) {
+              observedSignals.push(input.signal)
+            }
+            observedStatesDuringClassify.push({
+              isTranscribing: pipelineRef.getState().isTranscribing,
+              isClassifying: pipelineRef.getState().isClassifying
+            })
+            setTimeout(() => {
+              resolve({
+                intent: 'help_request',
+                decision: 'suggest',
+                requiresResponse: true,
+                addressee: 'assistant_or_user',
+                evidence: ['slow_remote'],
+                contextDependent: false,
+                uncertain: true
+              })
+            }, 2000)
+          }),
+        { enabled: true, userConsentGranted: true }
+      )
+
+      pipelineRef = new TranscriptionPipeline({
+        provider,
+        classifier: slowClassifier,
+        utteranceSettleMs: 500,
+        windowOptions: { minSpeechDurationMs: 100, silenceHangoverMs: 50 },
+        controlsOptions: { debounceMs: 0 }
+      })
+
+      // 1. Mic emits an incomplete trailing clause at t=0 -> mic settle timer set for 500ms
+      await pipelineRef.ingestChunk(makeChunk('mic', 1000, 100, true))
+      await pipelineRef.ingestChunk(makeChunk('mic', 1100, 50, false))
+
+      // Advance 300ms (mic has 200ms left on its settle timer)
+      vi.advanceTimersByTime(300)
+
+      // 2. System emits an incomplete trailing clause at t=300ms -> system settle timer set for 500ms (t=800ms)
+      await pipelineRef.ingestChunk(makeChunk('system', 1400, 100, true))
+      await pipelineRef.ingestChunk(makeChunk('system', 1500, 50, false))
+
+      // Advance 250ms (t=550ms): mic settle timer fires and starts classifier call #1,
+      // while system utterance is still held until t=800ms!
+      vi.advanceTimersByTime(250)
+      expect(observedSignals).toHaveLength(1)
+      expect(observedStatesDuringClassify[0]).toEqual({
+        isTranscribing: false,
+        isClassifying: true
+      })
+
+      // Advance 300ms (t=850ms): system settle timer fires and starts overlapping classifier call #2!
+      vi.advanceTimersByTime(300)
+      expect(observedSignals).toHaveLength(2)
+      expect(observedSignals[0].aborted).toBe(false)
+      expect(observedSignals[1].aborted).toBe(false)
+      expect(pipelineRef.getState().isClassifying).toBe(true)
+
+      // Trigger stop() while BOTH classifier requests are in-flight -> BOTH signals must be aborted!
+      pipelineRef.stop()
+      expect(observedSignals[0].aborted).toBe(true)
+      expect(observedSignals[1].aborted).toBe(true)
+      expect(pipelineRef.getState().isClassifying).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
