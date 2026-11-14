@@ -8,12 +8,14 @@ import type {
 
 export class DecisionsApiBenchmarkAdapter implements IntentBenchmarkAdapter {
   public readonly endpointUrl = 'https://openrouter.ai/api/alpha/decisions'
+  public readonly modelId: BenchmarkModelId
   private readonly fetchFn: typeof fetch
 
   constructor(
-    public readonly modelId: BenchmarkModelId,
+    modelId: BenchmarkModelId,
     options: { fetchFn?: typeof fetch } = {}
   ) {
+    this.modelId = modelId
     this.fetchFn = options.fetchFn ?? fetch
   }
 
