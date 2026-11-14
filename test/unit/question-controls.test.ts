@@ -341,6 +341,83 @@ describe('QuestionControls — Debounce, Confidence, Cooldown, and Cancellation'
     expect(controls.hasPending()).toBe(false)
   })
 
+  it('does not overwrite distinct questions that share a polite or interrogative opening prefix', () => {
+    const clock = () => currentTime
+    const controls = new QuestionControls({
+      debounceMs: 1000,
+      clock
+    })
+
+    const onReady = vi.fn()
+    const q1 = createCandidate({
+      id: 'q-closures',
+      text: 'Can you explain closures?',
+      language: 'en'
+    })
+    const q2 = createCandidate({
+      id: 'q-promises',
+      text: 'Can you explain promises?',
+      language: 'en'
+    })
+    const q3 = createCandidate({
+      id: 'q-uk-1',
+      text: 'Можеш будь ласка пояснити замикання?'
+    })
+    const q4 = createCandidate({
+      id: 'q-uk-2',
+      text: 'Можеш будь ласка пояснити проміси?'
+    })
+
+    controls.submitCandidate(q1, onReady)
+    controls.submitCandidate(q2, onReady)
+    controls.submitCandidate(q3, onReady)
+    controls.submitCandidate(q4, onReady)
+
+    expect(controls.getPendingCount()).toBe(4)
+
+    vi.advanceTimersByTime(1000)
+    currentTime += 1000
+
+    expect(onReady).toHaveBeenCalledTimes(4)
+    expect(onReady.mock.calls.map((c) => c[0].id)).toEqual([
+      'q-closures',
+      'q-promises',
+      'q-uk-1',
+      'q-uk-2'
+    ])
+  })
+
+  it('treats mid-word STT prefix revision as a continuation of the same question', () => {
+    const clock = () => currentTime
+    const controls = new QuestionControls({
+      debounceMs: 1000,
+      clock
+    })
+
+    const onReady = vi.fn()
+    const partial = createCandidate({
+      id: 'q-part',
+      text: 'Що таке штуч'
+    })
+    const expanded = createCandidate({
+      id: 'q-full',
+      text: 'Що таке штучний інтелект?'
+    })
+
+    controls.submitCandidate(partial, onReady)
+    expect(controls.getPendingCount()).toBe(1)
+
+    vi.advanceTimersByTime(400)
+    controls.submitCandidate(expanded, onReady)
+    expect(controls.getPendingCount()).toBe(1)
+
+    vi.advanceTimersByTime(1000)
+    expect(onReady).toHaveBeenCalledTimes(1)
+    expect(onReady).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'q-full', text: 'Що таке штучний інтелект?' })
+    )
+  })
+
   it('enforces bounded pending queue with explicit queue_overflow diagnostics', () => {
     const clock = () => currentTime
     const controls = new QuestionControls({
