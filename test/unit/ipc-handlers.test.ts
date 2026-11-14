@@ -1058,6 +1058,94 @@ describe('Main Process IPC Handlers', () => {
 
       expect(sendSpy).toHaveBeenCalledWith(IPC_CHANNELS.TRANSCRIPTION_STATE_CHANGED, sampleState)
     })
+
+    it('validates and delegates TRANSCRIPTION_SET_CLASSIFIER_CONFIG to transcriptionPipeline', async () => {
+      const mockPipeline = {
+        ingestChunk: vi.fn(),
+        stop: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        getState: vi.fn().mockReturnValue({}),
+        setClassifierConfig: vi.fn().mockImplementation((cfg) => ({
+          latestSegment: null,
+          latestUtterance: null,
+          latestEvaluation: null,
+          latestQuestion: null,
+          segmentCount: 0,
+          questionCount: 0,
+          isTranscribing: false,
+          isClassifying: false,
+          semanticClassifier: {
+            enabled: cfg.enabled,
+            userConsentGranted: cfg.userConsentGranted,
+            providerAvailable: true,
+            configuredModel: cfg.model ?? 'google/gemini-3.1-flash-lite',
+            zdrPreferred: true,
+            requestCount: 0,
+            maxRequests: 100,
+            totalSpentUsd: 0,
+            budgetUsd: 0.25,
+            lastError: null
+          }
+        })),
+        onStateChanged: vi.fn().mockReturnValue(() => {})
+      }
+
+      const customIpc = new MockIpcMain()
+      registerIpcHandlers(
+        customIpc,
+        defaultContext,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockPipeline as never
+      )
+
+      const setClassifierHandler = customIpc.handlers.get(
+        IPC_CHANNELS.TRANSCRIPTION_SET_CLASSIFIER_CONFIG
+      )!
+
+      // 1. Rejects unauthorized sender
+      const unauthRes = (await setClassifierHandler(
+        { sender: { id: 999 } },
+        { enabled: true, userConsentGranted: true }
+      )) as IpcResponse<unknown>
+      expect(unauthRes.ok).toBe(false)
+      if (!unauthRes.ok) {
+        expect(unauthRes.error.code).toBe('UNAUTHORIZED_SENDER')
+      }
+
+      // 2. Rejects invalid payload
+      const invalidRes = (await setClassifierHandler(makeValidEvent(), {
+        enabled: true,
+        userConsentGranted: true,
+        model: 'invalid-model'
+      })) as IpcResponse<unknown>
+      expect(invalidRes.ok).toBe(false)
+      if (!invalidRes.ok) {
+        expect(invalidRes.error.code).toBe('INVALID_CLASSIFIER_CONFIG')
+      }
+
+      // 3. Accepts valid opt-in config
+      const validRes = (await setClassifierHandler(makeValidEvent(), {
+        enabled: true,
+        userConsentGranted: true,
+        model: 'google/gemini-3.1-flash-lite'
+      })) as IpcResponse<{ semanticClassifier?: { enabled: boolean; userConsentGranted: boolean } }>
+      expect(validRes.ok).toBe(true)
+      expect(mockPipeline.setClassifierConfig).toHaveBeenCalledWith({
+        enabled: true,
+        userConsentGranted: true,
+        model: 'google/gemini-3.1-flash-lite'
+      })
+      if (validRes.ok) {
+        expect(validRes.data.semanticClassifier?.enabled).toBe(true)
+        expect(validRes.data.semanticClassifier?.userConsentGranted).toBe(true)
+      }
+    })
   })
 
   it('unregisters handlers cleanly on teardown', () => {
